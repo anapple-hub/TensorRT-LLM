@@ -113,7 +113,6 @@ def main(build_type: str = "Release",
         extra_cmake_vars = ["\"-D{}\"".format(var) for var in expanded_args]
         # Don't include duplicate conditions
         cmake_def_args.extend(set(extra_cmake_vars))
-
     if trt_root is not None:
         trt_root = trt_root.replace("\\", "/")
         trt_lib_dir_candidates = (
@@ -126,7 +125,12 @@ def main(build_type: str = "Release",
             trt_lib_dir = trt_lib_dir_candidates[0]
         cmake_def_args.append(f"-DTRT_LIB_DIR={trt_lib_dir}")
         cmake_def_args.append(f"-DTRT_INCLUDE_DIR={trt_root}/include")
-
+    elif platform.machine() == "aarch64":
+        cmake_def_args.append(
+            f"-DTRT_INCLUDE_DIR=/usr/include/aarch64-linux-gnu")
+    elif platform.machine() == "x86_64":
+        cmake_def_args.append(
+            f"-DTRT_INCLUDE_DIR=/usr/include/x86_64-linux-gnu")
     if nccl_root is not None:
         cmake_def_args.append(f"-DNCCL_LIB_DIR={nccl_root}/lib")
         cmake_def_args.append(f"-DNCCL_INCLUDE_DIR={nccl_root}/include")

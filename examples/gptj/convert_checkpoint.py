@@ -128,6 +128,8 @@ def get_tllm_linear_weight(
         processed_torch_weights, torch_weight_scales = \
             torch.ops.trtllm.symmetric_quantize_last_axis_of_batched_matrix(
                 v, plugin_weight_only_quant_type)
+        if plugin_weight_only_quant_type == torch.quint4x2:
+            processed_torch_weights = processed_torch_weights.view(dtype=torch.float32)
         results[f'{prefix}.weight'] = processed_torch_weights
         results[f'{prefix}.per_channel_scale'] = torch_weight_scales
     else:
@@ -151,6 +153,8 @@ def get_tllm_param(
         processed_torch_weights, torch_weight_scales = \
             torch.ops.trtllm.symmetric_quantize_last_axis_of_batched_matrix(
                 v, plugin_weight_only_quant_type)
+        if plugin_weight_only_quant_type == torch.quint4x2:
+            processed_torch_weights = processed_torch_weights.view(dtype=torch.float32)
         results[name] = processed_torch_weights
         results[name.replace('weight',
                              'per_channel_scale')] = torch_weight_scales

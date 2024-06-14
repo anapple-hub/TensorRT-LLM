@@ -100,7 +100,6 @@ def weight_only_quant_matmul(input: Tensor,
         plug_inputs = [input.trt_tensor, weights.trt_tensor, scales.trt_tensor]
         layer = default_trtnet().add_plugin_v2(plug_inputs, matmul_plug)
         _add_plugin_info(layer, plg_creator, "woq_matmul", pfc)
-        layer.get_input(1).set_dynamic_range(-127, 127)
         return _create_tensor(layer.get_output(0), layer)
 
 

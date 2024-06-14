@@ -34,6 +34,11 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace tensorrt_llm::batch_manager
 {
@@ -58,6 +63,20 @@ class IStatefulGptDecoder;
 class NcclCommunicator;
 class RuntimeBuffers;
 class TllmRuntime;
+
+class mmap_file{
+    public:
+        mmap_file(std::string const& enginePath);
+        mmap_file();
+        ~mmap_file();
+        const void* getData() const;
+        const size_t getSize() const;
+
+    private:
+        void* data_;
+        size_t bytes_;
+
+};
 
 class GptSession
 {
@@ -107,6 +126,9 @@ public:
         : GptSession(sessionConfig, modelConfig, worldConfig, utils::loadEngine(engineFile), std::move(logger))
     {
     }
+
+    GptSession(Config const& sessionConfig, GptModelConfig const& modelConfig, WorldConfig const& worldConfig,
+        std::string const& engineFile, bool use_mmap, LoggerPtr logger = nullptr);
 
     [[nodiscard]] nvinfer1::ILogger& getLogger() const;
 
@@ -271,6 +293,7 @@ private:
     bool mCudaGraphMode{false};
     // ping-pong instances
     std::vector<CudaGraphExecutor> mCudaGraphInstances;
+    std::shared_ptr<mmap_file> map_engine;
 };
 
 } // namespace tensorrt_llm::runtime

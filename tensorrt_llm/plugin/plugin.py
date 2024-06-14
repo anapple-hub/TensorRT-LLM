@@ -78,11 +78,12 @@ class PluginConfig:
     weight_only_quant_matmul_plugin: str = None
     quantize_per_token_plugin: bool = False
     quantize_tensor_plugin: bool = False
+    rmsnorm_plugin: bool = False
 
     # Features
     context_fmha: bool = True
     context_fmha_fp32_acc: bool = False  # will use fp16 if disabled
-    paged_kv_cache: bool = True
+    paged_kv_cache: bool = False
     remove_input_padding: bool = True
     # TODO[kevin]: smart strategy to choose all reduce plugin
     use_custom_all_reduce: bool = True

@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Union
 import numpy as np
 from packaging import version
 
+from tensorrt_llm.bindings.BuildInfo import ENABLE_MULTI_DEVICE
+
 # isort: off
 import torch
 import tensorrt as trt
@@ -39,28 +41,17 @@ np_float8 = np.dtype('V1', metadata={"dtype": "float8"})
 def torch_to_numpy(x: torch.Tensor):
     assert isinstance(x, torch.Tensor), \
         f'x must be a torch.Tensor object, but got {type(x)}.'
-    if x.dtype == torch.bfloat16:
-        return x.view(torch.int16).detach().cpu().numpy().view(np_bfloat16)
-    elif x.dtype == torch.float8_e4m3fn:
-        return x.view(torch.int8).detach().cpu().numpy().view(np_float8)
-    else:
-        return x.detach().cpu().numpy()
+    return x.detach().cpu().numpy()
 
 
 def numpy_to_torch(x):
-    if x.dtype == np_bfloat16:
-        return torch.tensor(x.view(np.int16)).view(torch.bfloat16)
-    elif x.dtype == np_float8:
-        return torch.tensor(x.view(np.int8)).view(torch.float8_e4m3fn)
-    else:
-        return torch.tensor(x)
+    return torch.tensor(x)
 
 
 def numpy_to_dtype(x, dtype: str):
     if str_dtype_to_np(dtype) == x.dtype:
         return x
-    if x.dtype not in [np_bfloat16, np_float8
-                       ] and dtype not in ['bfloat16', 'fp8']:
+    if x.dtype not in [np_float8] and dtype not in ['fp8']:
         return x.astype(str_dtype_to_np(dtype))
     else:
         return torch_to_numpy(numpy_to_torch(x).to(str_dtype_to_torch(dtype)))
@@ -72,18 +63,12 @@ int32_array = partial(np.array, dtype=np.int32)
 
 
 def bf16_array(x):
-    x = torch.tensor(x, dtype=torch.bfloat16)
     x = torch_to_numpy(x)
     return x
 
 
 def copy_torch_to_numpy(x: torch.Tensor, ndarray: np.array):
-    if x.dtype == torch.bfloat16:
-        torch.from_numpy(ndarray.view(np.int16)).copy_(x.view(torch.int16))
-    elif x.dtype == torch.float8_e4m3fn:
-        torch.from_numpy(ndarray.view(np.int8)).copy_(x.view(torch.int8))
-    else:
-        torch.from_numpy(ndarray).copy_(x)
+    torch.from_numpy(ndarray).copy_(x)
     return ndarray
 
 
@@ -108,11 +93,9 @@ def torch_version():
 _str_to_np_dict = dict(
     float16=np.float16,
     float32=np.float32,
-    int64=np.int64,
     int32=np.int32,
     int8=np.int8,
     bool=np.bool_,
-    bfloat16=np_bfloat16,
     fp8=np_float8,
 )
 
@@ -124,14 +107,11 @@ def str_dtype_to_np(dtype):
 
 
 _str_to_torch_dtype_dict = dict(
-    bfloat16=torch.bfloat16,
     float16=torch.float16,
     float32=torch.float32,
-    int64=torch.int64,
     int32=torch.int32,
     int8=torch.int8,
     bool=torch.bool,
-    fp8=torch.float8_e4m3fn,
 )
 
 
@@ -143,11 +123,9 @@ def str_dtype_to_torch(dtype):
 
 _str_to_trt_dtype_dict = dict(float16=trt.float16,
                               float32=trt.float32,
-                              int64=trt.int64,
                               int32=trt.int32,
                               int8=trt.int8,
                               bool=trt.bool,
-                              bfloat16=trt.bfloat16,
                               fp8=trt.fp8)
 
 
@@ -168,7 +146,6 @@ def trt_dtype_to_str(dtype: trt.DataType) -> str:
 _np_to_trt_dtype_dict = {
     np.int8: trt.int8,
     np.int32: trt.int32,
-    np.int64: trt.int64,
     np.float16: trt.float16,
     np.float32: trt.float32,
     np.bool_: trt.bool,
@@ -176,11 +153,9 @@ _np_to_trt_dtype_dict = {
     # hash of np.dtype('int32') != np.int32
     np.dtype('int8'): trt.int8,
     np.dtype('int32'): trt.int32,
-    np.dtype('int64'): trt.int64,
     np.dtype('float16'): trt.float16,
     np.dtype('float32'): trt.float32,
     np.dtype('bool'): trt.bool,
-    np_bfloat16: trt.bfloat16,
     np_float8: trt.fp8,
 }
 
@@ -194,11 +169,9 @@ def np_dtype_to_trt(dtype):
 _trt_to_np_dtype_dict = {
     trt.int8: np.int8,
     trt.int32: np.int32,
-    trt.int64: np.int64,
     trt.float16: np.float16,
     trt.float32: np.float32,
     trt.bool: np.bool_,
-    trt.bfloat16: np_bfloat16,
     trt.fp8: np_float8,
 }
 
@@ -215,10 +188,7 @@ _torch_to_np_dtype_dict = {
     torch.int8: np.int8,
     torch.int16: np.int16,
     torch.int32: np.int32,
-    torch.int64: np.int64,
     torch.float16: np.float16,
-    torch.bfloat16: np_bfloat16,
-    torch.float8_e4m3fn: np_float8,
     torch.float32: np.float32,
     torch.float64: np.float64,
     torch.complex64: np.complex64,
@@ -235,12 +205,9 @@ def torch_dtype_to_np(dtype):
 _trt_to_torch_dtype_dict = {
     trt.float16: torch.float16,
     trt.float32: torch.float32,
-    trt.int64: torch.int64,
     trt.int32: torch.int32,
     trt.int8: torch.int8,
     trt.bool: torch.bool,
-    trt.bfloat16: torch.bfloat16,
-    trt.fp8: torch.float8_e4m3fn,
 }
 
 
@@ -301,11 +268,11 @@ def mpi_comm():
 
 
 def mpi_rank():
-    return mpi_comm().Get_rank()
+    return 0 if ENABLE_MULTI_DEVICE else mpi_comm().Get_rank()
 
 
 def mpi_world_size():
-    return mpi_comm().Get_size()
+    return 1 if ENABLE_MULTI_DEVICE else mpi_comm().Get_size()
 
 
 def mpi_barrier():
@@ -347,7 +314,7 @@ def numpy_fp32_to_bf16(src):
     for i in range(len(dst)):
         bytes = struct.pack('<f', src[i])
         dst[i] = struct.unpack('<H', struct.pack('BB', bytes[2], bytes[3]))[0]
-    return dst.reshape(original_shape).view(np_bfloat16)
+    return dst.reshape(original_shape)
 
 
 def fromfile(dir_path, name, shape=None, dtype=None):

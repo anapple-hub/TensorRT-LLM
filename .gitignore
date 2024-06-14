@@ -26,3 +26,18 @@ tensorrt_llm/bindings/*.pyi
 # Testing
 .coverage.*
 results_trt/
+*.log
+examples/gemma/gemma-7b-engine/
+examples/gemma/gemma-2b-engine/
+examples/qwenvl/visual_encoder
+examples/qwenvl/visual_encoder_336
+examples/qwenvl/trt_engines
+examples/qwenvl/plan
+examples/qwenvl/image.pt
+examples/qwenvl/llm-model
+examples/qwenvl/result.png
+examples/llama/tllm_checkpoint_1gpu_gptq
+examples/llama/tllm_checkpoint_1gpu_gptq_llama3
+examples/llama/trt_engines
+examples/llama/llm-model
+cpp/tensorrt_llm/batch_manager/aarch64-linux-gnu/libtensorrt_llm_batch_manager_static.a

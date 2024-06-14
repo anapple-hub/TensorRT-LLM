@@ -922,6 +922,8 @@ def convert_hf_baichuan(
         if quant and use_weight_only:
             processed_torch_weights, torch_weight_scales = torch.ops.trtllm.symmetric_quantize_last_axis_of_batched_matrix(
                 v.T.contiguous(), plugin_weight_only_quant_type)
+            if plugin_weight_only_quant_type == torch.quint4x2:
+                processed_torch_weights = processed_torch_weights.view(dtype=torch.float32)
             return processed_torch_weights, torch_weight_scales
         else:
             return v

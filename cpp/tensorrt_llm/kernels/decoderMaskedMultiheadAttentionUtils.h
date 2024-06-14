@@ -298,7 +298,7 @@ struct packed_type<half, 8>
 {
     using type = uint4;
 };
-
+#ifdef ENABLE_BF16
 template <>
 struct packed_type<__nv_bfloat16, 2>
 {
@@ -316,7 +316,7 @@ struct packed_type<__nv_bfloat16, 8>
 {
     using type = bf16_8_t;
 };
-
+#endif // ENABLE_BF16
 template <>
 struct packed_type<float, 2>
 {
@@ -346,10 +346,12 @@ inline __device__ uint32_t sub(uint32_t a, uint32_t b)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if ENABLE_BF16
 inline __device__ __nv_bfloat162 sub(__nv_bfloat162 a, __nv_bfloat162 b)
 {
     return hsub2(a, b);
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -392,7 +394,6 @@ inline __device__ float4 add(float4 a, float4 b)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef ENABLE_FP8
 inline __device__ Float8_ add(Float8_ a, Float8_ b)
 {
     Float8_ c;
@@ -402,7 +403,6 @@ inline __device__ Float8_ add(Float8_ a, Float8_ b)
     c.w = add(a.w, b.w);
     return c;
 }
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -559,7 +559,7 @@ inline __device__ float add(float a, __nv_fp8_e4m3 b)
 {
     return a + (float) (b);
 }
-#endif
+#endif // ENABLE_FP8
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1476,6 +1476,7 @@ inline __device__ Float8_ fma(uint16_t a, int64_t b, Float8_ fc)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef ENABLE_BF16
 inline __device__ Float8_ fma(bf16_8_t a, int64_t b, Float8_ fc)
 {
     Float8_ fd;
@@ -1502,6 +1503,7 @@ inline __device__ Float8_ fma(__nv_bfloat16 a, int64_t b, Float8_ fc)
 {
     return fma(__bfloat162float(a), b, fc);
 }
+#endif // ENABLE_BF16
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2183,6 +2185,7 @@ inline __device__ Float8_ mul(float fa, fp8_8_t b)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef ENABLE_BF16
 template <>
 inline __device__ Float8_ mul(bf16_8_t a, fp8_8_t b)
 {
@@ -2202,6 +2205,7 @@ inline __device__ Float8_ mul(bf16_8_t a, fp8_8_t b)
     fc.w = mul<float2, __nv_bfloat162, float2>(a.w, float2(fp8_2[3]));
     return fc;
 }
+#endif // ENABLE_BF16
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2939,7 +2943,7 @@ inline __device__ void apply_rotary_embedding(uint32_t& q, uint32_t q_pair, uint
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-
+#ifdef ENABLE_BF16
 inline __device__ void apply_rotary_embedding(__nv_bfloat16& q, __nv_bfloat16 q_pair, __nv_bfloat16& k,
     __nv_bfloat16 k_pair, int tid0,
     int tid1, // not used
@@ -2986,6 +2990,7 @@ inline __device__ void apply_rotary_embedding(__nv_bfloat162& q, __nv_bfloat162 
     q = float22bf162(q_);
     k = float22bf162(k_);
 }
+#endif // ENABLE_BF16
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

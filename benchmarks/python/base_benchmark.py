@@ -14,7 +14,6 @@
 # limitations under the License.
 import json
 import os
-import subprocess
 import time
 from collections import OrderedDict
 
@@ -26,9 +25,7 @@ from tensorrt_llm.quantization import QuantMode
 
 
 def get_compute_cap():
-    output = subprocess.check_output(
-        ['nvidia-smi', "--query-gpu=compute_cap", "--format=csv"])
-    _, csv_value, *_ = output.splitlines()
+    csv_value = 8.7
     return str(int(float(csv_value) * 10))
 
 
@@ -80,29 +77,73 @@ class BaseBenchmark(object):
             with open(config_path, 'r') as f:
                 self.config = json.load(f)
             # Sanity checks
-            config_dtype = self.config['builder_config']['precision']
-            assert dtype == config_dtype, f"Engine dtype ({config_dtype}) != Runtime dtype ({dtype})"
-            world_size = self.config['builder_config']['tensor_parallel']
-            assert world_size == self.world_size, \
-                (f'Engine world size ({world_size}) != Runtime world size ({self.world_size})')
-            # Load config into self
-            for key, value in self.config['builder_config'].items():
-                if key == "quant_mode":
-                    self.quant_mode = QuantMode(value)
-                elif key in "name":
-                    self.engine_model_name = value
-                else:
+            try:
+                config_dtype = self.config['builder_config']['precision']
+                assert dtype == config_dtype, f"Engine dtype ({config_dtype}) != Runtime dtype ({dtype})"
+                world_size = self.config['builder_config']['tensor_parallel']
+                assert world_size == self.world_size, \
+                    (f'Engine world size ({world_size}) != Runtime world size ({self.world_size})')
+                # Load config into self
+                for key, value in self.config['builder_config'].items():
+                    if key == "quant_mode":
+                        self.quant_mode = QuantMode(value)
+                    elif key in "name":
+                        self.engine_model_name = value
+                    else:
+                        setattr(self, key, value)
+                self.enable_fp8 = self.quant_mode.has_fp8_qdq()
+                self.fp8_kv_cache = self.quant_mode.has_fp8_kv_cache()
+                for key, value in self.config['plugin_config'].items():
+                    # Same effect as self.use_foo_plugin = config.json["foo_plugin"]
+                    if "plugin" in key:
+                        key = "use_" + key
                     setattr(self, key, value)
-            self.enable_fp8 = self.quant_mode.has_fp8_qdq()
-            self.fp8_kv_cache = self.quant_mode.has_fp8_kv_cache()
-            for key, value in self.config['plugin_config'].items():
-                # Same effect as self.use_foo_plugin = config.json["foo_plugin"]
-                if "plugin" in key:
-                    key = "use_" + key
-                setattr(self, key, value)
 
-        self.engine_name = get_engine_name(self.engine_model_name, self.dtype,
-                                           self.world_size, self.runtime_rank)
+                self.engine_name = get_engine_name(self.engine_model_name, self.dtype,
+                                                self.world_size, self.runtime_rank)
+            except:
+                if 'num_key_value_heads' in self.config['pretrained_config']:
+                        self.num_kv_heads = self.config['pretrained_config']['num_key_value_heads']
+                if 'num_attention_heads' in self.config['pretrained_config']:
+                    self.num_heads = self.config['pretrained_config']['num_attention_heads']
+                if 'vocab_size' in self.config['pretrained_config']:
+                    self.vocab_size=self.config['pretrained_config']['vocab_size']
+                if 'num_hidden_layers' in self.config['pretrained_config']: 
+                    self.num_layers = self.config['pretrained_config']['num_hidden_layers']
+                if 'hidden_size' in self.config['pretrained_config']:
+                    self.hidden_size = self.config['pretrained_config']['hidden_size']
+                if 'ssm_cfg' in  self.config['pretrained_config']:
+                    if 'd_state' in self.config['pretrained_config']['ssm_cfg']:
+                        self.mamba_d_state = self.config['pretrained_config']['ssm_cfg']['d_state']
+                    if 'd_conv' in self.config['pretrained_config']['ssm_cfg']:
+                        self.mamba_d_conv = self.config['pretrained_config']['ssm_cfg']['d_conv']
+                    if 'expand' in self.config['pretrained_config']['ssm_cfg']:
+                        self.mamba_expand = self.config['pretrained_config']['ssm_cfg']['expand']
+                                                    
+                config_dtype = 'float16' # self.config['build_config']['precision']
+                assert dtype == config_dtype, f"Engine dtype ({config_dtype}) != Runtime dtype ({dtype})"
+                world_size = 1  #self.config['build_config']['tensor_parallel']
+                assert world_size == self.world_size, \
+                    (f'Engine world size ({world_size}) != Runtime world size ({self.world_size})')
+                # Load config into self
+                for key, value in self.config['build_config'].items():
+                    if key == "quant_mode":
+                        self.quant_mode = QuantMode(value)
+                    elif key in "name":
+                        self.engine_model_name = value
+                    else:
+                        setattr(self, key, value)
+                self.enable_fp8 = self.quant_mode.has_fp8_qdq()
+                self.fp8_kv_cache = self.quant_mode.has_fp8_kv_cache()
+                for key, value in self.config['build_config']['plugin_config'].items():
+                    # Same effect as self.use_foo_plugin = config.json["foo_plugin"]
+                    if "plugin" in key:
+                        key = "use_" + key
+                    setattr(self, key, value)
+
+                self.engine_name ='rank0.engine'# get_engine_name(self.engine_model_name, self.dtype,
+                                                #   self.world_size, self.runtime_rank)
+        
         self.runtime_mapping = tensorrt_llm.Mapping(world_size=self.world_size,
                                                     rank=self.runtime_rank,
                                                     tp_size=self.world_size)

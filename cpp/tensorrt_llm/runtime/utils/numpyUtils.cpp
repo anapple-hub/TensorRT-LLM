@@ -36,9 +36,15 @@ namespace tensorrt_llm::runtime::utils
 std::string getNumpyTypeDesc(nvinfer1::DataType type)
 {
     using dt = nvinfer1::DataType;
+#ifdef ENABLE_BF16
     static const std::unordered_map<dt, std::string> type_map{{dt::kBOOL, "?"}, {dt::kUINT8, "u1"}, {dt::kINT8, "i1"},
         {dt::kINT32, "i4"}, {dt::kINT64, "i8"}, {dt::kHALF, "f2"}, {dt::kFLOAT, "f4"}};
+#else
+    static const std::unordered_map<dt, std::string> type_map{{dt::kBOOL, "?"}, {dt::kUINT8, "u1"}, {dt::kINT8, "i1"},
+        {dt::kINT32, "i4"}, {dt::kHALF, "f2"}, {dt::kFLOAT, "f4"}};
+#endif
 
+#ifdef ENABLE_BF16
     if (type == dt::kBF16)
     {
         TLLM_LOG_WARNING(
@@ -46,6 +52,7 @@ std::string getNumpyTypeDesc(nvinfer1::DataType type)
             "support bfloat16 as of now, it will be properly extended if numpy supports. "
             "Please refer for the discussions https://github.com/numpy/numpy/issues/19808.");
     }
+#endif
 
     return type_map.count(type) > 0 ? type_map.at(type) : "x";
 }
@@ -53,8 +60,13 @@ std::string getNumpyTypeDesc(nvinfer1::DataType type)
 nvinfer1::DataType typeFromNumpyDesc(std::string type)
 {
     using dt = nvinfer1::DataType;
+#ifdef ENABLE_BF16
     static const std::unordered_map<std::string, dt> type_map{{"?", dt::kBOOL}, {"u1", dt::kUINT8}, {"i1", dt::kINT8},
         {"i4", dt::kINT32}, {"i8", dt::kINT64}, {"f2", dt::kHALF}, {"f4", dt::kFLOAT}};
+#else
+    static const std::unordered_map<std::string, dt> type_map{{"?", dt::kBOOL}, {"u1", dt::kUINT8}, {"i1", dt::kINT8},
+        {"i4", dt::kINT32}, {"f2", dt::kHALF}, {"f4", dt::kFLOAT}};
+#endif
     TLLM_CHECK_WITH_INFO(type_map.count(type) > 0, "numpy data type '" + type + "' not supported");
     return type_map.at(type);
 }

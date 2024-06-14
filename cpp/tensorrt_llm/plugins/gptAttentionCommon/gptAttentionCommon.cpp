@@ -27,6 +27,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <type_traits>
+#ifdef ENABLE_BF16
+#include <cuda_bf16.h>
+#endif
 
 using namespace nvinfer1;
 using namespace tensorrt_llm::kernels;
@@ -386,8 +389,12 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(int num_heads, int num_kv_hea
     , mRotaryEmbeddingMaxPositions(rotary_embedding_max_positions)
     , mPositionEmbeddingType(position_embedding_type)
     , mEnableContextFMHA(context_fmha_type != ContextFMHAType::DISABLED)
+#ifdef ENABLE_BF16
     , mFMHAForceFP32Acc(
           context_fmha_type == ContextFMHAType::ENABLED_WITH_FP32_ACC || type == nvinfer1::DataType::kBF16)
+#else
+    , mFMHAForceFP32Acc(context_fmha_type == ContextFMHAType::ENABLED_WITH_FP32_ACC)
+#endif
     , mMaskType(mask_type)
     , mType(type)
     , mMultiBlockMode(multi_block_mode)
@@ -413,7 +420,11 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(int num_heads, int num_kv_hea
     if (mEnableContextFMHA)
     {
         mEnableContextFMHA = false;
+#ifdef ENABLE_BF16
         if (!(mType == nvinfer1::DataType::kHALF || mType == nvinfer1::DataType::kBF16))
+#else
+        if (!(mType == nvinfer1::DataType::kHALF))
+#endif
         {
             TLLM_LOG_WARNING("Fall back to unfused MHA because of unsupported data type.");
         }
@@ -439,9 +450,12 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(int num_heads, int num_kv_hea
             mEnableContextFMHA = true;
         }
     }
-
     TLLM_CHECK(isRoPE() == (rotary_embedding_dim != 0));
-    TLLM_CHECK_WITH_INFO((mSM >= 80) || (mType != nvinfer1::DataType::kBF16),
+    TLLM_CHECK_WITH_INFO((mSM >= 80)
+#ifdef ENABLE_BF16
+            || (mType != nvinfer1::DataType::kBF16)
+#endif
+                             ,
         "Unsupported data type, pre SM 80 GPUs do not support bfloat16");
 
     // Some features have not been implemented on Volta.
@@ -512,7 +526,11 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(const void* data, size_t leng
         "caused by using different TensorRT-LLM version to build "
         "engine and run engine.",
         (int) length, (int) (d - a));
-    TLLM_CHECK_WITH_INFO((mSM >= 80) || (mType != nvinfer1::DataType::kBF16),
+    TLLM_CHECK_WITH_INFO((mSM >= 80)
+#ifdef ENABLE_BF16
+            || (mType != nvinfer1::DataType::kBF16)
+#endif
+                             ,
         "Unsupported data type, pre SM 80 GPUs do not support bfloat16");
 }
 
@@ -609,8 +627,7 @@ size_t GPTAttentionPluginCommon::getWorkspaceSizeForGeneration(
         size_t mqa_workspaces[1];
         mqa_workspaces[0] = mDecoderXQARunner->getWorkspaceSize(batch_beam);
         mqa_workspace_size = tc::calculateTotalWorkspaceSize(mqa_workspaces, 1);
-    }
-
+    } 
     return std::max(generation_workspace_size, mqa_workspace_size);
 }
 
@@ -1424,10 +1441,12 @@ int GPTAttentionPluginCommon::initialize() noexcept
         {
             data_type = DATA_TYPE_FP16;
         }
+#ifdef ENABLE_BF16
         else if (mType == nvinfer1::DataType::kBF16)
         {
             data_type = DATA_TYPE_BF16;
         }
+#endif
         else
         {
             TLLM_CHECK_WITH_INFO(false, "GPTAttentionPlugin received wrong data type.");
@@ -1438,9 +1457,12 @@ int GPTAttentionPluginCommon::initialize() noexcept
         // Set flags: force_fp32_acc, is_s_padded, causal_mask, num_kv_heads.
         mFMHARunner->setup_flags(mFMHAForceFP32Acc, !mRemovePadding, true, mNumKVHeads);
     }
-
+#ifdef ENABLE_BF16
     bool useXQAKernels = (mEnableXQA || mIsMedusaEnabled) && !mCrossAttention
         && (mType == nvinfer1::DataType::kHALF || mType == nvinfer1::DataType::kBF16);
+#else
+    bool useXQAKernels = (mEnableXQA || mIsMedusaEnabled) && !mCrossAttention && mType == nvinfer1::DataType::kHALF;
+#endif
 
     if (useXQAKernels)
     {
@@ -1449,10 +1471,12 @@ int GPTAttentionPluginCommon::initialize() noexcept
         {
             xqa_runner_data_type = DATA_TYPE_FP16;
         }
+#ifdef ENABLE_BF16
         else if (mType == nvinfer1::DataType::kBF16)
         {
             xqa_runner_data_type = DATA_TYPE_BF16;
         }
+#endif
         TLLM_LOG_DEBUG("Enabling XQA kernels for GPTAttention.");
         if (mIsMedusaEnabled)
         {

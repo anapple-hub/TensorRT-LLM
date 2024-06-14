@@ -207,7 +207,9 @@ void tileCpuBufferReplace(ITensor::SharedPtr& tensor, SizeType beamWidth, Buffer
         case nvinfer1::DataType::kINT8: tileCpuBufferReplaceImpl<int8_t>(tensor, beamWidth, manager); break;
         case nvinfer1::DataType::kBOOL: tileCpuBufferReplaceImpl<bool>(tensor, beamWidth, manager); break;
         case nvinfer1::DataType::kUINT8: tileCpuBufferReplaceImpl<uint8_t>(tensor, beamWidth, manager); break;
+#ifdef ENABLE_BF16
         case nvinfer1::DataType::kINT64: tileCpuBufferReplaceImpl<int64_t>(tensor, beamWidth, manager); break;
+#endif
         default: TLLM_THROW("unsupported data type");
         }
     }

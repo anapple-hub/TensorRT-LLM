@@ -100,12 +100,14 @@ inline size_t typeSize(nvinfer1::DataType type)
     case nvinfer1::DataType::kBOOL: return 1UL;
     case nvinfer1::DataType::kFP8: return 1UL;
     case nvinfer1::DataType::kHALF: return 2UL;
-    case nvinfer1::DataType::kBF16: return 2UL;
     case nvinfer1::DataType::kFLOAT: return 4UL;
     case nvinfer1::DataType::kINT8: return 1UL;
     case nvinfer1::DataType::kUINT8: return 1UL;
     case nvinfer1::DataType::kINT32: return 4UL;
+#ifdef ENABLE_BF16
+    case nvinfer1::DataType::kBF16: return 2UL;
     case nvinfer1::DataType::kINT64: return 8UL;
+#endif
     }
 
     TLLM_THROW("Unknown dtype %d", static_cast<int>(type));
@@ -118,7 +120,7 @@ inline cudaDataType_t trtToCublasDtype(nvinfer1::DataType type)
     {
     case nvinfer1::DataType::kFLOAT: return CUDA_R_32F;
     case nvinfer1::DataType::kHALF: return CUDA_R_16F;
-#if defined(NV_TENSORRT_MAJOR) && NV_TENSORRT_MAJOR >= 9
+#ifdef ENABLE_BF16
     case nvinfer1::DataType::kBF16: return CUDA_R_16BF;
 #endif
     default: TLLM_THROW("Not supported data type for cuBLAS");

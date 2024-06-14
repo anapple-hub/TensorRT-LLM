@@ -36,6 +36,7 @@
 #endif // ENABLE_MULTI_DEVICE
 #include "tensorrt_llm/plugins/quantizePerTokenPlugin/quantizePerTokenPlugin.h"
 #include "tensorrt_llm/plugins/quantizeTensorPlugin/quantizeTensorPlugin.h"
+#include "tensorrt_llm/plugins/rmsnormPlugin/rmsnormPlugin.h"
 #include "tensorrt_llm/plugins/rmsnormQuantizationPlugin/rmsnormQuantizationPlugin.h"
 #include "tensorrt_llm/plugins/selectiveScanPlugin/selectiveScanPlugin.h"
 #include "tensorrt_llm/plugins/smoothQuantGemmPlugin/smoothQuantGemmPlugin.h"
@@ -144,6 +145,7 @@ extern "C"
         static tensorrt_llm::plugins::AllgatherPluginCreator allgatherPluginCreator;
         static tensorrt_llm::plugins::ReduceScatterPluginCreator reduceScatterPluginCreator;
 #endif // ENABLE_MULTI_DEVICE
+        static tensorrt_llm::plugins::RmsnormPluginCreator rmsnormPluginCreator;
         static tensorrt_llm::plugins::SmoothQuantGemmPluginCreator smoothQuantGemmPluginCreator;
         static tensorrt_llm::plugins::LayernormQuantizationPluginCreator layernormQuantizationPluginCreator;
         static tensorrt_llm::plugins::QuantizePerTokenPluginCreator quantizePerTokenPluginCreator;
@@ -169,6 +171,7 @@ extern "C"
                   creatorPtr(allgatherPluginCreator),
                   creatorPtr(reduceScatterPluginCreator),
 #endif // ENABLE_MULTI_DEVICE
+                  creatorPtr(rmsnormPluginCreator),
                   creatorPtr(smoothQuantGemmPluginCreator),
                   creatorPtr(layernormQuantizationPluginCreator),
                   creatorPtr(quantizePerTokenPluginCreator),

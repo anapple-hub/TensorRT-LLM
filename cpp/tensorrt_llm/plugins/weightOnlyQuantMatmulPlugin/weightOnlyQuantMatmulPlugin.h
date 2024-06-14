@@ -61,7 +61,7 @@ class WeightOnlyQuantGemmPluginProfiler : public GemmPluginProfiler<tensorrt_llm
 public:
     using Config = tensorrt_llm::cutlass_extensions::CutlassGemmConfig;
 
-    void setWeightTypeId(WeightTypeId weightId)
+    void setWeightTypeId(int weightId)
     {
         mWeightTypeId = weightId;
     }
@@ -74,7 +74,7 @@ protected:
     std::vector<Config> getTactics(int m, int n, int k) const override;
 
 private:
-    WeightTypeId mWeightTypeId;
+    int mWeightTypeId;
 };
 
 class WeightOnlyQuantMatmulPlugin : public BasePlugin
@@ -83,7 +83,7 @@ public:
     using PluginProfilerPtr = std::shared_ptr<WeightOnlyQuantGemmPluginProfiler>;
     WeightOnlyQuantMatmulPlugin() = delete;
 
-    WeightOnlyQuantMatmulPlugin(nvinfer1::DataType type, WeightTypeId weightTypeId, const PluginProfilerPtr& profiler);
+    WeightOnlyQuantMatmulPlugin(nvinfer1::DataType type, int weightTypeId, const PluginProfilerPtr& profiler);
 
     WeightOnlyQuantMatmulPlugin(const void* data, size_t length, const PluginProfilerPtr& profiler);
 
@@ -117,7 +117,7 @@ public:
     void destroy() noexcept override;
 
 private:
-    void init(nvinfer1::DataType type, WeightTypeId weightTypeId);
+    void init(nvinfer1::DataType type, int weightTypeId);
 
     void configGemm();
 
@@ -127,7 +127,7 @@ private:
     WeightOnlyGemmRunnerPtr m_weightOnlyGemmRunner;
     size_t m_workspaceMaxSize;
     nvinfer1::DataType mType;
-    WeightTypeId mWeightTypeId;
+    int mWeightTypeId;
     bool mCudaKernelEnabled;
 
     // When M is smaller than this value, we trigger a fast path

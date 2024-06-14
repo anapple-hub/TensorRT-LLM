@@ -110,11 +110,8 @@ def CUASSERT(cuda_ret):
 
 
 def _update_cuda_graph_instance(instance, graph):
-    err = cudart.cudaGraphExecUpdate(instance, graph)
-    if err != cudart.cudaError_t.cudaSuccess:
-        # When updating cuda graph failed, destroy and instantiate one.
-        CUASSERT(cudart.cudaGraphExecDestroy(instance))
-        instance = CUASSERT(cudart.cudaGraphInstantiate(graph, 0))[0]
+    CUASSERT(cudart.cudaGraphExecDestroy(instance))
+    instance = CUASSERT(cudart.cudaGraphInstantiate(graph, 0))[0]
     return instance
 
 

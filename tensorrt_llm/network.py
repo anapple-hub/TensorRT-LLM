@@ -56,7 +56,6 @@ class PluginInfo:
         self.plugin_creator = plugin_creator
         self.plugin_name = plugin_name
         self.pfc = pfc
-        self._parse_pfc(pfc)
 
     def _parse_pfc(self, pfc: trt.PluginFieldCollection):
         self.pfc_as_ndarray = {}
@@ -142,8 +141,7 @@ class Network(object):
         self._plugin_config = PluginConfig()
         self._module_call_stack = _TrtLlmModuleCallStack()
         self._registered_ndarrays = []
-        self._strongly_typed = trt.INetworkDefinition.get_flag(
-            self._trt_network, trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED)
+        self._strongly_typed = False
         self._unfilled_weights: Dict[str, Tuple[np.array, np.array]] = {}
         self._auto_parallel_config: Dict[str, Any] = None
 
@@ -222,8 +220,7 @@ class Network(object):
         from .functional import cast
 
         # In strongly_typed, if tensor output is not the same, add a cast
-        if self.strongly_typed:
-            tensor = cast(tensor, dtype)
+        tensor = cast(tensor, dtype)
         self.trt_network.mark_output(tensor.trt_tensor)
         tensor.trt_tensor.name = name
         if not self.strongly_typed:

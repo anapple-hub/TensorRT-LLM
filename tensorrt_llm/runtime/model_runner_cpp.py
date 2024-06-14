@@ -37,8 +37,6 @@ _bindings_dtype_to_torch_dtype_dict = {
     DataType.INT32: torch.int32,
     DataType.BOOL: torch.bool,
     DataType.UINT8: torch.uint8,
-    DataType.BF16: torch.bfloat16,
-    DataType.INT64: torch.int64
 }
 
 
@@ -166,10 +164,17 @@ class ModelRunnerCpp(ModelRunnerMixin):
         session_config.kv_cache_config = KvCacheConfig(
             max_attention_window=max_attention_window_size,
             sink_token_length=sink_token_length)
-        session = GptSession(config=session_config,
-                             model_config=model_config,
-                             world_config=world_config,
-                             engine_file=str(serialize_path))
+        if  model_config.use_mmap:
+            session = GptSession(config=session_config,
+                                model_config=model_config,
+                                world_config=world_config,
+                                engine_file=str(serialize_path),
+                                use_mmap=model_config.use_mmap)
+        else:
+            session = GptSession(config=session_config,
+                                model_config=model_config,
+                                world_config=world_config,
+                                engine_file=str(serialize_path))
         profiler.stop('load tensorrt_llm engine')
         loading_time = profiler.elapsed_time_in_sec("load tensorrt_llm engine")
         logger.info(f'Load engine takes: {loading_time} sec')

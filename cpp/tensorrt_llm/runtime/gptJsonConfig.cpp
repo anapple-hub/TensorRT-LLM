@@ -109,8 +109,10 @@ GptJsonConfig parseJson(InputType&& i)
         dataType = nvinfer1::DataType::kFLOAT;
     else if (!precision.compare("float16"))
         dataType = nvinfer1::DataType::kHALF;
+#ifdef ENABLE_BF16
     else if (!precision.compare("bfloat16"))
         dataType = nvinfer1::DataType::kBF16;
+#endif
     else
         TLLM_CHECK_WITH_INFO(false, tc::fmtstr("Model data type '%s' not supported", precision.c_str()));
 
@@ -147,6 +149,10 @@ GptJsonConfig parseJson(InputType&& i)
         {
             modelConfig.setMlpHiddenSize(mlpHiddenSize.value() / tensorParallelism);
         }
+        
+        auto const& builderConfig = engineVersionNone ? json.at("builder_config") : json.at("build_config");
+        auto const& use_mmap = builderConfig.at("use_mmap").template get<bool>();
+        modelConfig.useMmap(use_mmap);
 
         if (loraTargetModules.has_value())
         {

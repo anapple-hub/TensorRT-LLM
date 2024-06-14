@@ -189,9 +189,14 @@ bool GPTAttentionPlugin::supportsFormatCombination(
     else if (mPagedKVCache
         && (pos == getIdx(IdxEntry::KV_CACHE_BLOCK_POINTERS) || pos == getIdx(IdxEntry::HOST_KV_CACHE_BLOCK_POINTERS)))
     {
+#ifdef ENABLE_BF16
         // pointers to kv cache blocks
         return inOut[pos].type == nvinfer1::DataType::kINT64 && inOut[pos].format == TensorFormat::kLINEAR;
+#else
+        TLLM_THROW("unsupported data type on Orin");
+#endif
     }
+
     else if (mKVCacheQuantMode.hasInt8KvCache()
         && (!mPagedKVCache && (pos == getIdx(IdxEntry::PAST_KEY_VALUE) || pos == nbInputs + 1)))
     {

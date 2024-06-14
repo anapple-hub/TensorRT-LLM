@@ -23,6 +23,7 @@ from tensorrt_llm._utils import torch_to_numpy
 from tensorrt_llm.runtime import ModelRunner, Session, TensorInfo
 
 sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from enc_dec.run import TRTLLMEncDecModel
 
 

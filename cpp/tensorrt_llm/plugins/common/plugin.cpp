@@ -23,7 +23,9 @@
 #include <cstdint>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
+#ifdef ENABLE_FP8
 #include <cuda_fp8.h>
+#endif
 #include <functional>
 #include <mutex>
 
@@ -36,8 +38,13 @@
 #if ENABLE_MULTI_DEVICE
 std::unordered_map<nvinfer1::DataType, ncclDataType_t>* getDtypeMap()
 {
-    static std::unordered_map<nvinfer1::DataType, ncclDataType_t> dtypeMap = {{nvinfer1::DataType::kFLOAT, ncclFloat32},
-        {nvinfer1::DataType::kHALF, ncclFloat16}, {nvinfer1::DataType::kBF16, ncclBfloat16}};
+    static std::unordered_map<nvinfer1::DataType, ncclDataType_t> dtypeMap
+        = {{nvinfer1::DataType::kFLOAT, ncclFloat32}, {nvinfer1::DataType::kHALF, ncclFloat16}
+#ifdef ENABLE_BF16
+            ,
+            {nvinfer1::DataType::kBF16, ncclBfloat16}
+#endif
+        };
     return &dtypeMap;
 }
 

@@ -25,18 +25,18 @@ from typing import Dict, Union
 import safetensors
 import torch
 
-from .._common import check_max_num_tokens
-from .._utils import str_dtype_to_torch, str_dtype_to_trt
-from ..builder import BuildConfig, Builder
-from ..graph_rewriting import optimize
-from ..logger import logger
-from ..models import MODEL_MAP, PretrainedConfig, PretrainedModel
-from ..models.modeling_utils import optimize_model
-from ..network import net_guard
-from ..plugin import PluginConfig, add_plugin_argument
-from ..quantization import QuantMode
-from ..runtime.engine import Engine, EngineConfig
-from ..version import __version__
+from tensorrt_llm._common import check_max_num_tokens
+from tensorrt_llm._utils import str_dtype_to_torch, str_dtype_to_trt
+from tensorrt_llm.builder import BuildConfig, Builder
+from tensorrt_llm.graph_rewriting import optimize
+from tensorrt_llm.logger import logger
+from tensorrt_llm.models import MODEL_MAP, PretrainedConfig, PretrainedModel
+from tensorrt_llm.models.modeling_utils import optimize_model
+from tensorrt_llm.network import net_guard
+from tensorrt_llm.plugin import PluginConfig, add_plugin_argument
+from tensorrt_llm.quantization import QuantMode
+from tensorrt_llm.runtime.engine import Engine, EngineConfig
+from tensorrt_llm.version import __version__
 
 
 def parse_arguments():
@@ -119,6 +119,14 @@ def parse_arguments():
                         type=str,
                         default=None,
                         choices=['int8', 'int4'])
+    parser.add_argument(
+        '--use_mmap',
+        default=False,
+        action='store_true',
+        help=
+        'Specify whether loading the engine using mmap in the inference phase.',
+    )
+
 
     plugin_config_parser = parser.add_argument_group("plugin_config")
     add_plugin_argument(plugin_config_parser)
@@ -135,8 +143,7 @@ def build_model(model: PretrainedModel, build_config: BuildConfig) -> Engine:
     builder = Builder()
     builder_config = builder.create_builder_config(
         precision=model.config.dtype,
-        int8=model.config.quant_mode.has_act_or_weight_quant()
-        or model.config.quant_mode.has_int8_kv_cache(),
+        int8=model.config.quant_mode.has_int8_kv_cache(),
         strongly_typed=build_config.strongly_typed,
         opt_level=build_config.builder_opt,
         profiling_verbosity=build_config.profiling_verbosity,
@@ -149,6 +156,7 @@ def build_model(model: PretrainedModel, build_config: BuildConfig) -> Engine:
         if hasattr(model.config, 'trtllm_modules_to_hf_modules') else [],
         max_lora_rank=model.config.max_lora_rank if hasattr(
             model.config, 'max_lora_rank') else 64,
+        use_mmap = build_config.use_mmap,
     )
 
     network = builder.create_network()
@@ -278,6 +286,10 @@ def build(build_config: BuildConfig,
 
     use_fused_mlp = kwargs.pop('use_fused_mlp', False)
     model = optimize_model(model, use_fused_mlp=use_fused_mlp)
+    if weights is not None:
+        import gc
+        del weights
+        gc.collect()
 
     return build_model(model, build_config)
 
@@ -317,19 +329,9 @@ def preprocess_weights(
 
     # Weight only 4bit
     elif quant_algo == 'W4A16':
-        for name in list(weights):
-            if any([
-                    _name in name for _name in [
-                        'qkv.weight', 'dense.weight', 'fc.weight',
-                        'proj.weight', 'gate.weight'
-                    ]
-            ]) and weights[name].dtype != torch.int8:
-                processed_torch_weights, torch_weight_scales = \
-            torch.ops.trtllm.symmetric_quantize_last_axis_of_batched_matrix(
-                weights[name].t().contiguous(), torch.quint4x2)
-                weights[name] = processed_torch_weights
-                weights[name.replace(
-                    '.weight', '.per_channel_scale')] = torch_weight_scales
+        print(
+            "Warning: the the data type of W4A16 should be float32 on Orin and int8 in builder_config should set false. please refer gemma for more info."
+        )
 
     # Weight only 8bit
     elif quant_algo == 'W8A16':
@@ -482,6 +484,7 @@ def main():
                 'builder_opt': args.builder_opt,
                 'profiling_verbosity': args.profiling_verbosity,
                 'enable_debug_output': args.enable_debug_output,
+                'use_mmap': args.use_mmap,
             },
             plugin_config=plugin_config)
     else:

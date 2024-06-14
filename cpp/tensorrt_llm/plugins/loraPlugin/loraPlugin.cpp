@@ -231,7 +231,11 @@ bool LoraPlugin::supportsFormatCombination(
     }
     else if (pos >= getLoraWeightsPtrsIdx() && pos < getLoraWeightsPtrsIdx() + mNumLoraModules)
     {
+#ifdef ENABLE_BF16
         return inOut[pos].type == nvinfer1::DataType::kINT64;
+#else
+        TLLM_THROW("unsupported data type on Orin");
+#endif
     }
     else if (mRemoveInputPadding && pos == getHostContextLengthsIdx())
     {

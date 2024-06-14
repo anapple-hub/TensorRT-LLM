@@ -96,6 +96,39 @@ GptSession::GptSession(Config const& sessionConfig, GptModelConfig const& modelC
     setup(sessionConfig);
 }
 
+GptSession::GptSession(Config const& sessionConfig, GptModelConfig const& modelConfig, WorldConfig const& worldConfig,
+    std::string const& engineFile, bool use_mmap, LoggerPtr logger)
+    : mModelConfig{modelConfig}
+    , mWorldConfig{worldConfig}
+    , mDevice{utils::initDevice(worldConfig)}
+    , mLogger{logger ? std::move(logger) : std::make_shared<TllmLogger>()}
+{
+    if(use_mmap){
+        map_engine = std::make_shared<mmap_file>(engineFile);
+        mRuntime = std::make_shared<TllmRuntime>(map_engine->getData(), map_engine->getSize(), *mLogger);
+        
+    }else{
+        std::vector<uint8_t> engineBuffer = utils::loadEngine(engineFile);
+        mRuntime = std::make_shared<TllmRuntime>(engineBuffer.data(), engineBuffer.size(), *mLogger);
+    }
+    TLLM_LOG_WARNING(
+        "GptSession is deprecated and will be removed in a future release."
+        " Please use the executor API instead (cpp/include/tensorrt_llm/executor).");
+
+    if (mWorldConfig.isPipelineParallel())
+    {
+        mPipelineComm = std::make_shared<NcclCommunicator>(mWorldConfig);
+        mCommStream = std::make_shared<CudaStream>();
+    }
+
+    TLLM_CHECK_WITH_INFO(!(mModelConfig.usePromptTuning() && !mModelConfig.useGptAttentionPlugin()),
+        "Prompt tuning is only enabled with GPT attention plugin.");
+
+    // TODO compare expected and runtime tensor names?
+
+    setup(sessionConfig);
+}
+
 nvinfer1::ILogger& GptSession::getLogger() const
 {
     return *mLogger;
@@ -233,10 +266,15 @@ void GptSession::createCustomAllReduceWorkspace(
     mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, bufferSize));
     mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, IpcMemory::FLAGS_SIZE * sizeof(int32_t)));
     mIpcMemoryHandles.emplace_back(std::make_shared<IpcMemory>(mWorldConfig, IpcMemory::FLAGS_SIZE * sizeof(int32_t)));
-
+#ifdef ENABLE_BF16
     mCommPtrs = BufferManager::cpu(
         ITensor::makeShape({static_cast<SizeType>(mIpcMemoryHandles.size()) * mWorldConfig.getTensorParallelism()}),
         nvinfer1::DataType::kINT64);
+#else
+    mCommPtrs = BufferManager::cpu(
+        ITensor::makeShape({static_cast<SizeType>(mIpcMemoryHandles.size()) * mWorldConfig.getTensorParallelism(), 2}),
+        nvinfer1::DataType::kINT32);
+#endif
     auto* const commPtrsData = bufferCast<void*>(*mCommPtrs);
 
     for (size_t memIdx = 0; memIdx < mIpcMemoryHandles.size(); memIdx++)
@@ -1203,7 +1241,7 @@ void GptSession::CudaGraphExecutor::launch(CudaStream const& stream)
 bool GptSession::CudaGraphExecutor::update(cudaGraph_t const& graph)
 {
     TLLM_LOG_TRACE("%s start", __PRETTY_FUNCTION__);
-    return cudaGraphExecUpdate(mInstance, graph, nullptr) != cudaSuccess;
+    return cudaGraphExecUpdate(mInstance, graph, nullptr, nullptr) != cudaSuccess;
 }
 
 void GptSession::CudaGraphExecutor::clear()
@@ -1244,3 +1282,47 @@ void GptSession::CudaGraphExecutor::prepareNextGraph(TllmRuntime const& runtime,
     uploadToStream(stream);
     TLLM_LOG_TRACE("%s stop", __PRETTY_FUNCTION__);
 }
+
+mmap_file::mmap_file(std::string const& enginePath):data_(nullptr),bytes_(0){
+    int fd = open(enginePath.c_str(),O_RDONLY);
+    if(fd <= 0){
+        TLLM_CHECK_WITH_INFO(false, std::string("Error opening engine file: " + enginePath));
+        return;
+    }
+    struct stat status;
+    if(fstat(fd, &status) !=0){
+        TLLM_CHECK_WITH_INFO(false, std::string("fstat failed, " + enginePath));
+        close(fd);
+        return;
+    }
+
+    bytes_ = status.st_size;
+    data_ = mmap(nullptr, bytes_, PROT_READ, MAP_SHARED, fd, 0);
+    if(data_ == MAP_FAILED){
+        data_ = nullptr;
+        TLLM_CHECK_WITH_INFO(false,std::string("mmap failed, " + enginePath));
+        close(fd);
+        return;
+    }
+    close(fd);
+
+}
+
+mmap_file::mmap_file():data_(nullptr),bytes_(0){
+
+}
+
+const void* mmap_file::getData() const{
+    return data_;
+}
+
+const size_t mmap_file::getSize() const{
+    return bytes_;
+}
+
+mmap_file::~mmap_file(){
+    if(data_ != nullptr && data_ !=MAP_FAILED){
+        munmap(data_, bytes_);
+    }
+}
+

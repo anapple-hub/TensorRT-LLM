@@ -477,10 +477,12 @@ void DecoderXQAImplPrecompiled::runDispatchBuffer(const XQAParams& xqa_params, K
     {
         XQA_KERNEL_RUN(__half);
     }
+#ifdef ENABLE_BF16
     else
     {
         XQA_KERNEL_RUN(__nv_bfloat16);
     }
+#endif
 }
 
 #undef XQA_KERNEL_RUN

@@ -25,10 +25,14 @@ constexpr static size_t getDTypeSize(nvinfer1::DataType type)
 {
     switch (type)
     {
+#ifdef ENABLE_BF16
     case nvinfer1::DataType::kINT64: return 8;
+#endif
     case nvinfer1::DataType::kINT32: [[fallthrough]];
     case nvinfer1::DataType::kFLOAT: return 4;
+#ifdef ENABLE_BF16
     case nvinfer1::DataType::kBF16: [[fallthrough]];
+#endif // ENABLE_BF16
     case nvinfer1::DataType::kHALF: return 2;
     case nvinfer1::DataType::kBOOL: [[fallthrough]];
     case nvinfer1::DataType::kUINT8: [[fallthrough]];

@@ -121,7 +121,7 @@ class PretrainedConfig:
         tp_size = mapping.get('tp_size', 1)
         pp_size = mapping.get('pp_size', 1)
 
-        if share_embedding_table and mapping.tp_size > 1:
+        if share_embedding_table and mapping.get('tp_size') > 1:
             if (not use_parallel_embedding) or (use_parallel_embedding and
                                                 embedding_sharding_dim == 1):
                 raise NotImplementedError(

@@ -122,20 +122,24 @@ void GemmPluginProfiler<Config, RunnerPtr, GemmIdType, GemmIdHashType>::profileT
     }
 
     auto mProfileMap = mMNKProfileMap->getMProfileMap(gemmId);
+    bool isAllocated{false};
 
-    auto profileTactics = [&mProfileMap, this](int m, int n, int k)
+    auto profileTactics = [&mProfileMap, &isAllocated, this](int m, int n, int k)
     {
         if (mProfileMap->count(m) == 0)
         {
+            if (!isAllocated)
+            {
+                // Allocate tmp data to run GEMMs
+                allocateTmpData();
+                isAllocated = true;
+            }
             initTmpData(m, n, k, mWorkspaceTmp, mTmpWorkspaceSizeInBytes, cudaStreamDefault);
             const auto tactics = this->getTactics(m, n, k);
             // Profile different tactics for particular m and insert best config to the map
             mProfileMap->insert({m, this->profileTacticsForProblem(m, n, k, tactics)});
         }
     };
-
-    // Allocate tmp data to run GEMMs
-    allocateTmpData();
 
     const int startMinMRounded = nextPowerOfTwo(dims.minM);
     for (int m = startMinMRounded; m < maxM; m *= 2)
@@ -145,7 +149,11 @@ void GemmPluginProfiler<Config, RunnerPtr, GemmIdType, GemmIdHashType>::profileT
 
     profileTactics(maxM, dims.n, dims.k);
     // Free tmp data
-    freeTmpData();
+    if (isAllocated)
+    {
+        // Free tmp data
+        freeTmpData();
+    }
 }
 
 template <typename Config, typename RunnerPtr, typename GemmIdType, typename GemmIdHashType>

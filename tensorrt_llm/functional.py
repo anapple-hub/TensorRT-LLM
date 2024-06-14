@@ -30,8 +30,8 @@ from . import graph_rewriting as gw
 from ._common import default_net, default_trtnet, precision
 from ._utils import (bf16_array, dim_resolve_negative, dim_to_trt_axes,
                      fp16_array, fp32_array, int32_array, np_dtype_to_trt,
-                     str_dtype_to_trt, torch_to_numpy, trt_dtype_to_np,
-                     trt_dtype_to_torch)
+                     str_dtype_to_np, str_dtype_to_trt, torch_to_numpy,
+                     trt_dtype_to_np, trt_dtype_to_torch)
 from .network import PluginInfo, set_np_weight, set_plugin_info
 from .plugin import TRT_LLM_PLUGIN_NAMESPACE, current_all_reduce_helper
 from .quantization import QuantMode
@@ -1015,8 +1015,7 @@ def constant(ndarray: np.ndarray) -> Tensor:
     Returns:
         The tensor produced by the inserted layer.
     '''
-    weights = trt.Weights(np_dtype_to_trt(ndarray.dtype), ndarray.ctypes.data,
-                          ndarray.size)
+    weights = trt.Weights(ndarray)
     # Prevent underlying numpy array from going out of scope
     default_net().register_ndarray(ndarray)
     layer = default_trtnet().add_constant(trt.Dims(ndarray.shape), weights)
@@ -2195,7 +2194,6 @@ def constant_to_tensor_(input: Union[Tensor, int, float],
         array_fn_dict = {
             trt.float32: fp32_array,
             trt.float16: fp16_array,
-            trt.bfloat16: bf16_array,
         }
         assert dtype in array_fn_dict
         return constant(array_fn_dict[dtype]([input]))
@@ -3903,6 +3901,68 @@ def layer_norm(input: Tensor,
     return _create_tensor(layer.get_output(0), layer)
 
 
+# def rms_norm(input: Tensor,
+#              normalized_shape: Union[int, Tuple[int]],
+#              weight: Optional[Tensor] = None,
+#              eps: float = 1e-06) -> Tensor:
+#     '''
+#     Add a RMS norm operation on a tensor.
+
+#     That operation applies the rms-normalization to its input tensor. In its
+#     simplest form, for large language models, the 'normalized_shape' should be
+#     set to the hidden dimension of the activation tensor. Otherwise, it is the
+#     shape of the normalized fraction of the tensor (starting from the
+#     right-most dimension).
+
+#     The 'weight' tensor corresponds to 'gamma' in the rms-norm formula.
+#     The 'eps' value is added to the variance before computing the squared-root.
+
+#     Parameters:
+#         input: Tensor
+#             The tensor to normalize.
+
+#         normalized_shape : Union[int, Tuple[int]]
+#             The shape of the sub-tensor that is normalized. Use 'hidden_dim' to
+#             normalize the inner-most dimension of an activation tensor in LLMs.
+
+#         weight : Optional[Tensor] = None
+#             The 'gamma' term in layer-norm. Its shape must be
+#             'normalized_shape'.
+
+#         eps : float
+#             The epsilon term to be added to the variance in the squared-root.weig
+#     Returns:
+#         The output tensor of that operation.
+#     '''
+#     normalized_shape = [normalized_shape] if isinstance(
+#         normalized_shape, int) else normalized_shape
+
+#     dim = tuple([-i - 1 for i in range(len(normalized_shape))])
+
+#     if default_net().strongly_typed:
+#         input_dtype = input.dtype
+#         fp32_input = cast(input, "float32")
+#         varx = pow(fp32_input, 2.0)
+
+#         varx = varx.mean(dim, keepdim=True)
+#         denom = varx + eps
+#         denom = denom.sqrt()
+#         fp32_y = fp32_input / denom
+#         y = cast(fp32_y, input_dtype)
+#     else:
+#         with precision("float32"):
+#             varx = pow(input, 2.0)
+#             varx = varx.mean(dim, keepdim=True)
+#             denom = varx + eps
+#             denom = denom.sqrt()
+#             y = input / denom
+
+#     if weight is not None:
+#         y = y * weight
+
+#     return y
+
+
 def rms_norm(input: Tensor,
              normalized_shape: Union[int, Tuple[int]],
              weight: Optional[Tensor] = None,
@@ -3936,33 +3996,60 @@ def rms_norm(input: Tensor,
     Returns:
         The output tensor of that operation.
     '''
-    normalized_shape = [normalized_shape] if isinstance(
-        normalized_shape, int) else normalized_shape
+    if not default_net().plugin_config.rmsnorm_plugin:
+        normalized_shape = [normalized_shape] if isinstance(
+            normalized_shape, int) else normalized_shape
 
-    dim = tuple([-i - 1 for i in range(len(normalized_shape))])
+        dim = tuple([-i - 1 for i in range(len(normalized_shape))])
 
-    if default_net().strongly_typed:
-        input_dtype = input.dtype
-        fp32_input = cast(input, "float32")
-        varx = pow(fp32_input, 2.0)
+        if default_net().strongly_typed:
+            input_dtype = input.dtype
+            fp32_input = cast(input, "float32")
+            varx = pow(fp32_input, 2.0)
 
-        varx = varx.mean(dim, keepdim=True)
-        denom = varx + eps
-        denom = denom.sqrt()
-        fp32_y = fp32_input / denom
-        y = cast(fp32_y, input_dtype)
-    else:
-        with precision("float32"):
-            varx = pow(input, 2.0)
             varx = varx.mean(dim, keepdim=True)
             denom = varx + eps
             denom = denom.sqrt()
-            y = input / denom
+            fp32_y = fp32_input / denom
+            y = cast(fp32_y, input_dtype)
+        else:
+            with precision("float32"):
+                varx = pow(input, 2.0)
+                varx = varx.mean(dim, keepdim=True)
+                denom = varx + eps
+                denom = denom.sqrt()
+                y = input / denom
 
-    if weight is not None:
-        y = y * weight
+        if weight is not None:
+            y = y * weight
 
-    return y
+        return y
+    else:
+        # TODO remove the plugin version if rmsnorm operation can be offloaded
+        # to Myelin.
+        plg_creator = trt.get_plugin_registry().get_plugin_creator(
+            'Rmsnorm', '1', TRT_LLM_PLUGIN_NAMESPACE)
+        assert plg_creator is not None
+
+        eps = trt.PluginField("eps", np.array(eps, dtype=np.float32),
+                              trt.PluginFieldType.FLOAT32)
+        # p_dtype = default_net().plugin_config.rmsnorm_plugin
+        p_dtype = 'float16'
+        pf_type = trt.PluginField(
+            "type_id", np.array([int(str_dtype_to_trt(p_dtype))], np.int32),
+            trt.PluginFieldType.INT32)
+        pfc = trt.PluginFieldCollection([eps, pf_type])
+        rmsnorm_plug = plg_creator.create_plugin("rmsnorm", pfc)
+
+        normalized_shape = [normalized_shape] if isinstance(
+            normalized_shape, int) else normalized_shape
+        if weight is None:
+            weight = constant(
+                np.zeros(normalized_shape, dtype=str_dtype_to_np(p_dtype)))
+
+        plug_inputs = [input.trt_tensor, weight.trt_tensor]
+        layer = default_trtnet().add_plugin_v2(plug_inputs, rmsnorm_plug)
+        return _create_tensor(layer.get_output(0), layer)
 
 
 def repeat_interleave(tensor: Tensor, repeats: int, dim: int) -> Tensor:

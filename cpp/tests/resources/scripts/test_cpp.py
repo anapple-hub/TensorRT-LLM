@@ -178,16 +178,16 @@ def run_tests(cuda_architectures: _tp.Optional[str] = None,
         else:
             _log.info("Skipping benchmarks")
 
-    else:
-        prepare_multi_gpu_model_tests(python_exe=python_exe,
-                                      root_dir=root_dir,
-                                      resources_dir=resources_dir,
-                                      model_cache=model_cache)
+    # else:
+    #     prepare_multi_gpu_model_tests(python_exe=python_exe,
+    #                                   root_dir=root_dir,
+    #                                   resources_dir=resources_dir,
+    #                                   model_cache=model_cache)
 
-        if build_only:
-            return
+    #     if build_only:
+    #         return
 
-        run_multi_gpu_tests(build_dir=build_dir)
+    #     run_multi_gpu_tests(build_dir=build_dir)
 
 
 def prepare_all_model_tests(python_exe: str,

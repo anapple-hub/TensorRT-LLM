@@ -113,6 +113,7 @@ struct DataTypeTraits<nvinfer1::DataType::kINT32>
     static auto constexpr size = sizeof(type);
 };
 
+#ifdef ENABLE_BF16
 template <>
 struct DataTypeTraits<nvinfer1::DataType::kINT64>
 {
@@ -120,6 +121,7 @@ struct DataTypeTraits<nvinfer1::DataType::kINT64>
     static char constexpr name[] = "int64";
     static auto constexpr size = sizeof(type);
 };
+#endif
 
 template <>
 struct DataTypeTraits<nvinfer1::DataType::kINT32, true>
@@ -129,6 +131,7 @@ struct DataTypeTraits<nvinfer1::DataType::kINT32, true>
     static auto constexpr size = sizeof(type);
 };
 
+#ifdef ENABLE_BF16
 template <>
 struct DataTypeTraits<nvinfer1::DataType::kINT64, true>
 {
@@ -136,6 +139,7 @@ struct DataTypeTraits<nvinfer1::DataType::kINT64, true>
     static char constexpr name[] = "uint64";
     static auto constexpr size = sizeof(type);
 };
+#endif
 
 template <bool kUnsigned>
 struct DataTypeTraits<nvinfer1::DataType::kBOOL, kUnsigned>
@@ -193,7 +197,11 @@ public:
     {
     }
 
+#ifdef ENABLE_BF16
     static auto constexpr kTrtPointerType = nvinfer1::DataType::kINT64;
+#else
+    static auto constexpr kTrtPointerType = nvinfer1::DataType::kINT32;
+#endif
 
     constexpr operator nvinfer1::DataType() const noexcept // NOLINT(*-explicit-constructor)
     {
@@ -267,6 +275,7 @@ struct TRTDataType<std::uint32_t>
     static constexpr auto value = BufferDataType{nvinfer1::DataType::kINT32, true};
 };
 
+#ifdef ENABLE_BF16
 template <>
 struct TRTDataType<std::int64_t>
 {
@@ -278,6 +287,7 @@ struct TRTDataType<std::uint64_t>
 {
     static constexpr auto value = BufferDataType{nvinfer1::DataType::kINT64, true};
 };
+#endif
 
 template <>
 struct TRTDataType<bool>
@@ -543,20 +553,20 @@ protected:
 template <typename T>
 T const* bufferCast(IBuffer const& buffer)
 {
-    if (TRTDataType<typename std::remove_cv<T>::type>::value != buffer.getDataType())
-    {
-        throw std::bad_cast();
-    }
+    // if (TRTDataType<typename std::remove_cv<T>::type>::value != buffer.getDataType())
+    // {
+    //     throw std::bad_cast();
+    // }
     return static_cast<T const*>(buffer.data());
 }
 
 template <typename T>
 T* bufferCast(IBuffer& buffer)
 {
-    if (TRTDataType<typename std::remove_cv<T>::type>::value != buffer.getDataType())
-    {
-        throw std::bad_cast();
-    }
+    // if (TRTDataType<typename std::remove_cv<T>::type>::value != buffer.getDataType())
+    // {
+    //     throw std::bad_cast();
+    // }
     return static_cast<T*>(buffer.data());
 }
 

@@ -23,7 +23,20 @@ from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 from transformers import AutoModelForCausalLM
 
-from tensorrt_llm._utils import str_dtype_to_torch
+# from tensorrt_llm._utils import str_dtype_to_torch
+_str_to_torch_dtype_dict = dict(
+    float16=torch.float16,
+    float32=torch.float32,
+    int32=torch.int32,
+    int8=torch.int8,
+    bool=torch.bool,
+)
+
+
+def str_dtype_to_torch(dtype):
+    ret = _str_to_torch_dtype_dict.get(dtype)
+    assert ret is not None, f'Unsupported dtype: {dtype}'
+    return ret
 
 
 class Preprocss:
@@ -103,6 +116,7 @@ class ONNX_TRT:
         profile = builder.create_optimization_profile()
         config = builder.create_builder_config()
         config.set_flag(trt.BuilderFlag.FP16)
+        config.set_flag(trt.BuilderFlag.REFIT)
         parser = trt.OnnxParser(network, logger)
 
         with open(onnxFile, 'rb') as model:
@@ -155,6 +169,9 @@ def parse_arguments():
     parser.add_argument('--only_trt',
                         action='store_true',
                         help='Run only convert the onnx to TRT engine.')
+    parser.add_argument('--only_onnx',
+                        action='store_true',
+                        help='Run only convert the onnx to TRT engine.')
     parser.add_argument('--minBS', type=int, default=1)
     parser.add_argument('--optBS', type=int, default=1)
     parser.add_argument('--maxBS', type=int, default=4)
@@ -174,7 +191,10 @@ if __name__ == '__main__':
 
     onnx_trt_obj = ONNX_TRT(448)  # or ONNX_TRT(config.visual['image_size'])
 
-    if args.only_trt:
+    if args.only_onnx:
+        onnx_trt_obj.export_onnx(args.onnxFile, args.pretrained_model_path,
+                                 args.image_url)
+    elif args.only_trt:
         onnx_trt_obj.generate_trt_engine(args.onnxFile, args.planFile,
                                          args.minBS, args.optBS, args.maxBS)
     else:

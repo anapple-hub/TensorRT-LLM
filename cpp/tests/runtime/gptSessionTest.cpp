@@ -582,7 +582,7 @@ TEST_P(ParamTest, Test)
 
     // Warning: This should be the last check before running the test.
     // It will initialize MPI which can take significant time.
-    if (!WorldConfig::validConfig(modelSpec.mTPSize, modelSpec.mPPSize))
+    if (modelSpec.mTPSize * modelSpec.mPPSize != COMM_SESSION.getSize())
     {
         GTEST_SKIP() << "Model's world size " << modelSpec.mPPSize * modelSpec.mTPSize
                      << " is not equal to the system world size";

@@ -344,11 +344,11 @@ class WeightOnlyQuantLinear(Module):
             quant_type_size_in_bits = 4
         self.in_features = in_features
         self.out_features = out_features // tp_size
-        # we use a fake tensor with data_type = int8
+        # we use a fake tensor with data_type = float
         self.weight = Parameter(shape=(self.in_features,
                                        int(self.out_features *
-                                           quant_type_size_in_bits / 8)),
-                                dtype="int8")
+                                           quant_type_size_in_bits / 32)),
+                                dtype="float32")
 
         scale_shape = (self.out_features, )
         self.per_channel_scale = Parameter(shape=scale_shape, dtype=dtype)
@@ -407,11 +407,11 @@ class WeightOnlyQuantRowLinear(Module):
             self.weight_only_quant_mode = 2
         self.in_features = in_features // tp_size
         self.out_features = out_features
-        #we use a fake tensor with data_type = int8
+        #we use a fake tensor with data_type = float
         self.weight = Parameter(shape=(self.in_features,
-                                       int(self.out_features /
+                                       int(self.out_features / 4 /
                                            self.weight_only_quant_mode)),
-                                dtype="int8")
+                                dtype="float32")
         self.per_channel_scale = Parameter(shape=(self.out_features, ),
                                            dtype=dtype)
 

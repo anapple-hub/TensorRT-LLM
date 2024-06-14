@@ -61,6 +61,9 @@ PYBIND11_MODULE(TRTLLM_PYBIND_MODULE, m)
     tpr::GenerationInput::initBindings(m);
     tpr::GenerationOutput::initBindings(m);
 
+    auto buildInfo = m.def_submodule("BuildInfo");
+    buildInfo.attr("ENABLE_MULTI_DEVICE") = py::int_(ENABLE_MULTI_DEVICE);
+
     py::class_<tbk::KvCacheConfig>(m, "KvCacheConfig")
         .def(py::init<std::optional<SizeType>, std::optional<SizeType>, std::optional<SizeType>, std::optional<float>,
                  bool>(),
@@ -93,8 +96,10 @@ PYBIND11_MODULE(TRTLLM_PYBIND_MODULE, m)
         .value("BOOL", nvinfer1::DataType::kBOOL)
         .value("UINT8", nvinfer1::DataType::kUINT8)
         .value("FP8", nvinfer1::DataType::kFP8)
+#ifdef ENABLE_BF16
         .value("BF16", nvinfer1::DataType::kBF16)
         .value("INT64", nvinfer1::DataType::kINT64)
+#endif
         .export_values();
 
     py::enum_<tr::GptModelConfig::ModelVariant>(m, "GptModelVariant")
@@ -152,6 +157,7 @@ PYBIND11_MODULE(TRTLLM_PYBIND_MODULE, m)
         .def_property_readonly("hidden_size", &tr::GptModelConfig::getHiddenSize)
         .def_property_readonly("size_per_head", &tr::GptModelConfig::getSizePerHead)
         .def_property_readonly("data_type", &tr::GptModelConfig::getDataType)
+        .def_property_readonly("use_mmap", &tr::GptModelConfig::getUse_mmap)
         .def_property("num_kv_heads", &tr::GptModelConfig::getNbKvHeads, &tr::GptModelConfig::setNbKvHeads)
         .def_property("head_size", &tr::GptModelConfig::getSizePerHead, &tr::GptModelConfig::setSizePerHead)
         .def_property("use_gpt_attention_plugin",
@@ -254,6 +260,16 @@ PYBIND11_MODULE(TRTLLM_PYBIND_MODULE, m)
             py::arg("config"), py::arg("model_config"), py::arg("world_config"), py::arg("engine_buffer"))
         .def(py::init<tr::GptSession::Config, tr::GptModelConfig, tr::WorldConfig, std::string>(), py::arg("config"),
             py::arg("model_config"), py::arg("world_config"), py::arg("engine_file"))
+        .def(py::init(
+                 [](tr::GptSession::Config const& config, tr::GptModelConfig const& modelConfig,
+                     tr::WorldConfig const& worldConfig, std::string const& engineFile, bool use_mmap)
+                 {
+                     PyErr_WarnEx(
+                         PyExc_DeprecationWarning, "GptSession is deprecated use the executor API instead.", 1);
+
+                     return tr::GptSession{config, modelConfig, worldConfig, engineFile, use_mmap};
+                 }),
+            py::arg("config"), py::arg("model_config"), py::arg("world_config"), py::arg("engine_file"),py::arg("use_mmap"))
         .def_property_readonly("model_config", &tr::GptSession::getModelConfig)
         .def_property_readonly("world_config", &tr::GptSession::getWorldConfig)
         .def_property_readonly("device", &tr::GptSession::getDevice)

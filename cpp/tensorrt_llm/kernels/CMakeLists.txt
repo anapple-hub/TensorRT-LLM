@@ -17,11 +17,17 @@
 
 file(GLOB_RECURSE SRC_CPP *.cpp)
 file(GLOB_RECURSE SRC_CU *.cu)
+list(FILTER SRC_CPP EXCLUDE REGEX ".*sm89.*|.*sm90.*|.*sm_89.*|.*sm_90.*")
+list(FILTER SRC_CU EXCLUDE REGEX ".*sm89.*|.*sm90.*|.*sm_89.*|.*sm_90.*")
 
 # skip mmha 48, 80, 96, 112, 144, 160, 192 and 224 for fast build
 if(FAST_BUILD)
   list(FILTER SRC_CU EXCLUDE REGEX
        "decoderMaskedMultiheadAttention(48|80|96|112|144|160|192|224).*cu$")
+endif()
+
+if(ENABLE_MULTI_DEVICE EQUAL 0)
+  list(FILTER SRC_CU EXCLUDE REGEX "customAllReduceKernels*.*cu$")
 endif()
 
 add_library(kernels_src OBJECT ${SRC_CPP} ${SRC_CU})

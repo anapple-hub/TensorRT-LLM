@@ -132,8 +132,13 @@ void RuntimeBuffers::create(TllmRuntime& runtime, GptModelConfig const& modelCon
         allGenerationLogits = manager.emptyTensor(MemoryType::kGPU, logitsType);
         if (modelConfig.computeGenerationLogits())
         {
+#ifdef ENABLE_BF16
             cacheGenerationFragmentPointerDevice = manager.emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT64);
             cacheGenerationFragmentPointerHost = manager.emptyTensor(MemoryType::kPINNED, nvinfer1::DataType::kINT64);
+#else
+            cacheGenerationFragmentPointerDevice = manager.emptyTensor(MemoryType::kGPU, nvinfer1::DataType::kINT32);
+            cacheGenerationFragmentPointerHost = manager.emptyTensor(MemoryType::kPINNED, nvinfer1::DataType::kINT32);
+#endif
 
             generationLogitsFragments = std::make_shared<std::vector<TensorPtr>>();
         }
@@ -261,11 +266,18 @@ void RuntimeBuffers::reshape(GptModelConfig const& modelConfig, WorldConfig cons
             allGenerationLogits->reshape(
                 ITensor::makeShape({(generationConfig.maxSeqLength - generationConfig.maxInputLength), batchSize,
                     beamWidth, vocabSizePadded}));
-
+#ifdef ENABLE_BF16
             cacheGenerationFragmentPointerDevice->reshape(
                 ITensor::makeShape({batchSize, (generationConfig.maxSeqLength - generationConfig.maxInputLength)}));
             cacheGenerationFragmentPointerHost->reshape(
                 ITensor::makeShape({batchSize, (generationConfig.maxSeqLength - generationConfig.maxInputLength)}));
+#else
+            cacheGenerationFragmentPointerDevice->reshape(
+                ITensor::makeShape({batchSize, (generationConfig.maxSeqLength - generationConfig.maxInputLength), 2}));
+            cacheGenerationFragmentPointerHost->reshape(
+                ITensor::makeShape({batchSize, (generationConfig.maxSeqLength - generationConfig.maxInputLength), 2}));
+
+#endif
         }
     }
 

@@ -88,7 +88,7 @@ class Builder():
 
     def __init__(self):
         super().__init__()
-        self._trt_builder = trt.Builder(logger.trt_logger)
+        self._trt_builder = trt.Builder(trt.Logger(trt.Logger.VERBOSE))
         # TODO: Enable strongly_typed on by default in TRT 10.0
         self.strongly_typed = False
 
@@ -408,6 +408,7 @@ class BuildConfig:
     profiling_verbosity: str = 'layer_names_only'
     enable_debug_output: bool = False
     plugin_config: PluginConfig = PluginConfig()
+    use_mmap: bool = False
 
     @classmethod
     def from_dict(cls, config, plugin_config=None):
@@ -425,6 +426,7 @@ class BuildConfig:
         profiling_verbosity = config.pop('profiling_verbosity',
                                          'layer_names_only')
         enable_debug_output = config.pop('enable_debug_output', False)
+        use_mmap = config.pop('use_mmap', False)
 
         if plugin_config is None:
             plugin_config = PluginConfig()
@@ -443,7 +445,8 @@ class BuildConfig:
             builder_opt=builder_opt,
             profiling_verbosity=profiling_verbosity,
             enable_debug_output=enable_debug_output,
-            plugin_config=plugin_config)
+            plugin_config=plugin_config,
+            use_mmap=use_mmap)
 
     @classmethod
     def from_json_file(cls, config_file, plugin_config=None):

@@ -92,8 +92,11 @@ void LoraManager::fillInputTensors(TensorPtr weightsPtrs, TensorPtr adapterSizes
     SizeType beamWidth, SizeType firstLayerId, SizeType lastLayerId, SizeType tpSize, SizeType tpRank)
 {
     TLLM_LOG_DEBUG("%s start", __PRETTY_FUNCTION__);
-
+#ifdef ENABLE_BF16
     auto weightsPointersPtr = bufferCast<int64_t>(*weightsPtrs);
+#else
+    auto weightsPointersPtr = reinterpret_cast<int64_t*>((bufferCast<int32_t>(*weightsPtrs)));
+#endif
     auto adapterSizesPtr = bufferCast<int32_t>(*adapterSizes);
 
     auto [reqWeights, reqKeys] = getTask(taskId);

@@ -356,10 +356,12 @@ int WeightOnlyGroupwiseQuantMatmulPlugin::enqueue(const nvinfer1::PluginTensorDe
     {
         weight_only_act_type = tensorrt_llm::kernels::WeightOnlyActivationType::FP16;
     }
+#ifdef ENABLE_BF16
     else if (mType == nvinfer1::DataType::kBF16)
     {
         weight_only_act_type = tensorrt_llm::kernels::WeightOnlyActivationType::BF16;
     }
+#endif // ENABLE_BF16
     if (use_cuda_kernel)
     {
         // Use CUDA kernels for small batch size

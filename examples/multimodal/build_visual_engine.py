@@ -1,6 +1,5 @@
 import argparse
 import os
-import shutil
 from time import time
 
 # isort: off
@@ -51,7 +50,7 @@ def build_trt_engine(img_height, img_width, output_dir, max_batch_size):
         logger.log(trt.Logger.INFO, "Succeeded parsing %s" % onnx_file)
 
     # Delete onnx files since we don't need them now
-    shutil.rmtree(f'{output_dir}/onnx')
+    # shutil.rmtree(f'{output_dir}/onnx')
 
     nBS = -1
     nMinBS = 1
@@ -143,7 +142,8 @@ def build_llava_engine(args):
                                  model.multi_modal_projector,
                                  model.config.vision_feature_layer)
 
-    export_visual_wrapper_onnx(wrapper, image, args.output_dir)
+    export_visual_wrapper_onnx(wrapper, image,
+                               args.output_dir)  #torch.Size([1, 3, 336, 336])
     build_trt_engine(image.shape[2], image.shape[3], args.output_dir,
                      args.max_batch_size)
 

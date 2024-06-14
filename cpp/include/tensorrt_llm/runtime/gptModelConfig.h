@@ -62,6 +62,7 @@ public:
         , mPagedContextFMHA(false)
         , mUseLoraPlugin(false)
         , mMlpHiddenSize(0)
+        , mUse_mmap(false)
     {
     }
 
@@ -351,6 +352,22 @@ public:
         mMaxLoraRank = maxLoraRank;
     }
 
+    [[nodiscard]] bool constexpr useMmap() const noexcept
+    {
+        return mUse_mmap;
+    }
+
+    void constexpr useMmap(bool newMmap) noexcept
+    {
+        mUse_mmap = newMmap;
+    }
+
+    [[nodiscard]] bool constexpr getUse_mmap() const noexcept
+    {
+        return mUse_mmap;
+    }
+
+
 private:
     SizeType mVocabSize;
     SizeType mNbLayers;
@@ -385,5 +402,6 @@ private:
     std::vector<LoraModule> mLoraModules;
     SizeType mMlpHiddenSize;
     SizeType mMaxLoraRank;
+    bool mUse_mmap;
 };
 } // namespace tensorrt_llm::runtime
