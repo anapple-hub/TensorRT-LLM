@@ -1,0 +1,10 @@
+diff a/requirements.txt b/requirements.txt	(rejected hunks)
+@@ -15,7 +15,7 @@ sentencepiece>=0.1.99
+ tensorrt==9.2.0.post12.dev5
+ torch<=2.2.0a
+ nvidia-ammo~=0.7.0; platform_machine=="x86_64"
+-transformers==4.36.1
++transformers==4.41.0
+ wheel
+ optimum
+ evaluate

@@ -16,6 +16,7 @@
 import copy
 import csv
 import math
+import sys
 from dataclasses import dataclass, field
 from functools import reduce, wraps
 from pathlib import Path
@@ -159,7 +160,7 @@ class _Runtime(object):
         context = self.engine.create_execution_context_without_device_memory()
         assert context is not None
         context.device_memory = address
-        context.set_optimization_profile_async(profile_idx, stream)
+        # context.set_optimization_profile_async(profile_idx, stream)
         return context
 
     def __prepare(self, mapping: Mapping, engine_buffer):
@@ -233,6 +234,12 @@ class _Runtime(object):
             assert buffer_dict[name].is_contiguous(
             ), f"{name} is not contiguous()"
             context.set_tensor_address(name, buffer_dict[name].data_ptr())
+
+    def _set_tensor(self, context: trt.IExecutionContext,
+                    name, tensor):
+        if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+            context.set_input_shape(name, list(tensor.size()))
+        context.set_tensor_address(name, tensor.data_ptr())
 
     def _set_tensors(self, context: trt.IExecutionContext,
                      tensors: Dict[str, "RuntimeTensor"]):
@@ -314,6 +321,7 @@ class ModelConfig:
     mamba_d_state: int = 0
     mamba_d_conv: int = 0
     mamba_expand: int = 0
+    eagle_small: bool = False
 
 
 @dataclass
@@ -474,6 +482,7 @@ class GenerationSession(object):
     medusa_tree_ids: List[int] = None
     medusa_position_offsets: List[int] = None
     medusa_temperature: float = 0.0
+    current_context_id: int = 0
 
     def __init__(self,
                  model_config: ModelConfig,
@@ -523,17 +532,17 @@ class GenerationSession(object):
             self.nccl_comm = torch.classes.trtllm.NcclCommunicatorOp(
                 self.mapping.tp_size, self.mapping.pp_size, self.mapping.rank)
 
-        if self.mapping.is_last_pp_rank():
-            self.decoder_logits_dtype = self._tensor_dtype('logits')
-            if self.decoder_logits_dtype not in [torch.float16, torch.float32]:
-                logger.warning(
-                    "Logits dtype not supported by decoder. Falling back to float32. You may want to change the logits dtype to float16 in your model definition."
-                )
-                self.decoder_logits_dtype = torch.float32
-            self.dynamic_decoder = torch.classes.trtllm.DynamicDecodeOp(
-                model_config.max_batch_size, self.vocab_size,
-                self.vocab_size_padded, self.mapping.tp_size,
-                self.mapping.pp_size, self.decoder_logits_dtype)
+        # if self.mapping.is_last_pp_rank():
+            # self.decoder_logits_dtype = self._tensor_dtype('logits')
+            # if self.decoder_logits_dtype not in [torch.float16, torch.float32]:
+                # logger.warning(
+                    # "Logits dtype not supported by decoder. Falling back to float32. You may want to change the logits dtype to float16 in your model definition."
+                # )
+                # self.decoder_logits_dtype = torch.float32
+            # self.dynamic_decoder = torch.classes.trtllm.DynamicDecodeOp(
+                # model_config.max_batch_size, self.vocab_size,
+                # self.vocab_size_padded, self.mapping.tp_size,
+                # self.mapping.pp_size, self.decoder_logits_dtype)
 
         if model_config.use_context_fmha_for_generation:
             logger.warning(
@@ -542,13 +551,18 @@ class GenerationSession(object):
         self.gather_tree = torch.ops.tensorrt_llm.gather_tree
 
         expected_tensor_names = []
+        print("self.is_eagle_small", self.is_eagle_small)
+        if self.is_eagle_small:
+            expected_tensor_names += ['hidden_states_input']
+            # expected_tensor_names += ['logits']
         if self.mapping.is_first_pp_rank():
             expected_tensor_names += ['input_ids']
         else:
             expected_tensor_names += ['hidden_states_input']
 
+        expected_tensor_names += ['hidden_states_output']
         if self.mapping.is_last_pp_rank():
-            expected_tensor_names += ['logits']
+            # expected_tensor_names += ['logits']
             if not model_config.gather_context_logits:
                 expected_tensor_names += ['last_token_ids']
         else:
@@ -642,7 +656,7 @@ class GenerationSession(object):
 
         if model_config.max_medusa_tokens > 0:
             expected_tensor_names += [
-                'medusa_position_offsets', 'medusa_packed_mask', 'medusa_logits'
+                'medusa_position_offsets', 'medusa_packed_mask', #'medusa_logits'
             ]
 
         found_tensor_names = [
@@ -666,6 +680,10 @@ class GenerationSession(object):
         if self.debug_mode:
             self.debug_tensors = list(
                 set(found_tensor_names) - set(expected_tensor_names))
+
+    @property
+    def is_eagle_small(self):
+        return self._model_config.eagle_small
 
     @property
     def vocab_size(self):
@@ -791,6 +809,11 @@ class GenerationSession(object):
     def num_medusa_heads(self):
         return self._model_config.num_medusa_heads
 
+    def setup_decoder(self, input_ids: torch.Tensor,
+                      sampling_config: SamplingConfig,
+                      host_context_lengths: torch.Tensor):
+        self.__setup_decoder(input_ids, sampling_config, host_context_lengths)
+
     def __setup_decoder(self, input_ids: torch.Tensor,
                         sampling_config: SamplingConfig,
                         host_context_lengths: torch.Tensor):
@@ -902,14 +925,14 @@ class GenerationSession(object):
         else:
             self.random_seed = None
 
-        if self.mapping.is_last_pp_rank():
-            self.dynamic_decoder.setup(
-                batch_size, scfg.num_beams, self.top_k, self.top_p,
-                self.temperature, self.repetition_penalty,
-                self.presence_penalty, self.frequency_penalty, self.min_length,
-                self.host_length_penalty, self.beam_search_diversity_rate,
-                self.random_seed, self.top_p_decay, self.top_p_min,
-                self.top_p_reset_ids)
+        # if self.mapping.is_last_pp_rank():
+            # self.dynamic_decoder.setup(
+                # batch_size, scfg.num_beams, self.top_k, self.top_p,
+                # self.temperature, self.repetition_penalty,
+                # self.presence_penalty, self.frequency_penalty, self.min_length,
+                # self.host_length_penalty, self.beam_search_diversity_rate,
+                # self.random_seed, self.top_p_decay, self.top_p_min,
+                # self.top_p_reset_ids)
 
         assert scfg.end_id is not None, "end_id cannot be none"
         assert scfg.pad_id is not None, 'pad_id cannot be none'
@@ -964,26 +987,26 @@ class GenerationSession(object):
             device=self.device)
 
         if self.is_medusa_mode:
-            self.new_tokens = torch.zeros(
-                [batch_size, self.num_medusa_tokens + 1],
-                dtype=torch.int32,
-                device=self.device)
-            self.generation_input_ids = torch.zeros(
-                [batch_size, self.num_medusa_tokens + 1],
-                dtype=torch.int32,
-                device=self.device)
-            self.medusa_output_tokens = torch.zeros(
-                [batch_size, self.num_medusa_tokens],
-                dtype=torch.int32,
-                device=self.device)
+            # self.new_tokens = torch.zeros(
+                # [batch_size, self.num_medusa_tokens + 1],
+                # dtype=torch.int32,
+                # device=self.device)
+            # self.generation_input_ids = torch.zeros(
+                # [batch_size, self.num_medusa_tokens + 1],
+                # dtype=torch.int32,
+                # device=self.device)
+            # self.medusa_output_tokens = torch.zeros(
+                # [batch_size, self.num_medusa_tokens],
+                # dtype=torch.int32,
+                # device=self.device)
             self.accept_lengths = torch.ones([batch_size],
                                              dtype=torch.int32,
                                              device=self.device)
-            if self.medusa_temperature != 0:
-                self.medusa_output_logits = torch.empty(
-                    [batch_size, self.num_medusa_heads, self.vocab_size_padded],
-                    dtype=self._tensor_dtype('logits'),
-                    device=self.device)
+            # if self.medusa_temperature != 0:
+                # self.medusa_output_logits = torch.empty(
+                    # [batch_size, self.num_medusa_heads, self.vocab_size_padded],
+                    # dtype=self._tensor_dtype('logits'),
+                    # device=self.device)
         elif scfg.num_beams > 1:
             self.new_tokens = torch.zeros([batch_size, scfg.num_beams, 1],
                                           dtype=torch.int32,
@@ -1181,36 +1204,42 @@ class GenerationSession(object):
             self._init_medusa(medusa_choices)
 
         self.buffer = {}
-        if self.mapping.is_last_pp_rank():
-            if self.is_medusa_mode:
-                self.buffer['logits'] = torch.empty(
-                    (batch_size, self.num_medusa_tokens + 1,
-                     self.vocab_size_padded)
-                    if not self.gather_context_logits else
-                    (batch_size, max_context_length, self.vocab_size_padded),
-                    dtype=self._tensor_dtype('logits'),
-                    device=self.device)
-                medusa_logits_shape = (self.num_medusa_heads, batch_size,
-                                       (self.num_medusa_tokens + 1),
-                                       self.vocab_size_padded)
-                if self.remove_input_padding:
-                    medusa_logits_shape = (self.num_medusa_heads, batch_size *
-                                           (self.num_medusa_tokens + 1),
-                                           self.vocab_size_padded)
+        if self.mapping.is_last_pp_rank() and self.is_eagle_small:
+            self.buffer['logits'] = torch.empty(
+                (batch_size, self.vocab_size_padded)
+                if not self.gather_context_logits else
+                (batch_size, max_context_length, self.vocab_size_padded),
+                dtype=self._tensor_dtype('logits'),
+                device=self.device)
+            # if self.is_medusa_mode:
+                # self.buffer['logits'] = torch.empty(
+                    # (batch_size, self.num_medusa_tokens + 1,
+                     # self.vocab_size_padded)
+                    # if not self.gather_context_logits else
+                    # (batch_size, max_context_length, self.vocab_size_padded),
+                    # dtype=self._tensor_dtype('logits'),
+                    # device=self.device)
+                # medusa_logits_shape = (self.num_medusa_heads, batch_size,
+                                       # (self.num_medusa_tokens + 1),
+                                       # self.vocab_size_padded)
+                # if self.remove_input_padding:
+                    # medusa_logits_shape = (self.num_medusa_heads, batch_size *
+                                           # (self.num_medusa_tokens + 1),
+                                           # self.vocab_size_padded)
 
-                self.buffer['medusa_logits'] = torch.empty(
-                    medusa_logits_shape if not self.gather_context_logits else
-                    (self.num_medusa_heads, batch_size, max_context_length,
-                     self.vocab_size_padded),
-                    dtype=self._tensor_dtype('medusa_logits'),
-                    device=self.device)
-            else:
-                self.buffer['logits'] = torch.empty(
-                    (batch_size, self.vocab_size_padded)
-                    if not self.gather_context_logits else
-                    (batch_size, max_context_length, self.vocab_size_padded),
-                    dtype=self._tensor_dtype('logits'),
-                    device=self.device)
+                # self.buffer['medusa_logits'] = torch.empty(
+                    # medusa_logits_shape if not self.gather_context_logits else
+                    # (self.num_medusa_heads, batch_size, max_context_length,
+                     # self.vocab_size_padded),
+                    # dtype=self._tensor_dtype('medusa_logits'),
+                    # device=self.device)
+            # else:
+                # self.buffer['logits'] = torch.empty(
+                    # (batch_size, self.vocab_size_padded)
+                    # if not self.gather_context_logits else
+                    # (batch_size, max_context_length, self.vocab_size_padded),
+                    # dtype=self._tensor_dtype('logits'),
+                    # device=self.device)
 
         if self.cross_attention:
             # use shape info to pass max length info in remove padding mode
@@ -1391,15 +1420,19 @@ class GenerationSession(object):
                     input_ids.shape[0], input_ids.shape[1], hidden_size)
             else:
                 hidden_states_input = hidden_states_input.resize_(
-                    input_ids.shape[0], hidden_size)
+                    self.batch_size, hidden_size)
 
         if self.mapping.is_last_pp_rank():
-            add_tensor(self.buffer['logits'], 'logits')
-            if self.is_medusa_mode:
-                add_tensor(self.buffer['medusa_logits'], 'medusa_logits')
+            # if self.is_medusa_mode:
+                # add_tensor(self.buffer['medusa_logits'], 'medusa_logits')
 
             if not self.gather_context_logits:
                 add_tensor(last_token_ids, 'last_token_ids')
+
+            add_tensor(hidden_states_input, 'hidden_states_output')
+            if self.is_eagle_small:
+                # add_tensor(self.buffer['logits'], 'logits')
+                add_tensor(hidden_states_input, 'hidden_states_input')
         else:
             add_tensor(hidden_states_input, 'hidden_states_output')
 
@@ -1575,12 +1608,16 @@ class GenerationSession(object):
             hidden_states_input = hidden_states_input.resize_(*shape)
 
         if self.mapping.is_last_pp_rank():
-            add_tensor(self.buffer['logits'], 'logits')
-            if self.is_medusa_mode:
-                add_tensor(self.buffer['medusa_logits'], 'medusa_logits')
+            # add_tensor(self.buffer['logits'], 'logits')
+            # if self.is_medusa_mode:
+                # add_tensor(self.buffer['medusa_logits'], 'medusa_logits')
 
             if not self.gather_context_logits:
                 add_tensor(last_token_ids, 'last_token_ids')
+            add_tensor(hidden_states_input, 'hidden_states_output')
+            if self.is_eagle_small:
+                # add_tensor(self.buffer['logits'], 'logits')
+                add_tensor(hidden_states_input, 'hidden_states_input')
         else:
             add_tensor(hidden_states_input, 'hidden_states_output')
 
@@ -1589,10 +1626,13 @@ class GenerationSession(object):
                 batch_size * beam_width * (self.num_medusa_tokens + 1),
             ) if self.remove_input_padding else (batch_size * beam_width,
                                                  self.num_medusa_tokens + 1)
-            if self.is_medusa_mode:
-                add_tensor_with_shape(self.generation_input_ids, 'input_ids',
-                                      input_ids_shape)
-            else:
+            # if self.is_medusa_mode:
+                # add_tensor_with_shape(self.generation_input_ids, 'input_ids',
+                                      # input_ids_shape)
+            # else:
+                # add_tensor_with_shape(self.new_tokens, 'input_ids',
+                                      # input_ids_shape)
+            if self.is_eagle_small:
                 add_tensor_with_shape(self.new_tokens, 'input_ids',
                                       input_ids_shape)
         else:
@@ -1651,7 +1691,7 @@ class GenerationSession(object):
                 if not self.use_gpt_attention_plugin:
                     next_shape = (batch_size * beam_width, 2, self.num_heads_kv,
                                   max_context_length + step, self.head_size)
-                    if step % 2:
+                    if (self.current_context_id % 2 if self.is_eagle_small else step % 2):
                         add_tensor_with_shape(
                             self.buffer[f'1_present_key_value_{idx}'],
                             f'past_key_value_{idx}', next_shape)
@@ -1965,7 +2005,7 @@ class GenerationSession(object):
 
     def update_kv_cache_draft_token_location(self, batch_size, best_path,
                                              best_path_len):
-        best_path_len_tensor = torch.tensor(best_path_len,
+        best_path_len_tensor = torch.tensor(best_path_len.item(),
                                             dtype=torch.int,
                                             device='cuda')
         accepted_draft_token_counts = best_path_len_tensor - 1
@@ -2159,7 +2199,7 @@ class GenerationSession(object):
             encoder_input_lengths: torch.Tensor,
             stopping_criteria: StoppingCriteria,
             logits_processor: LogitsProcessor, **kwargs):
-        if step % 2:
+        if (self.current_context_id % 2 if self.is_eagle_small else step % 2):
             context = self.runtime.context_0
             this_src_cache_indirection = cache_indirections[1]
             this_tgt_cache_indirection = cache_indirections[0]
@@ -2215,7 +2255,7 @@ class GenerationSession(object):
             self.runtime._check_tensors(context)
         # dynamic_decoder currently use torch's current stream, so must let TRT enqueue use same stream here
         stream = torch.cuda.current_stream().cuda_stream
-        instance_idx = step % 2
+        instance_idx = (self.current_context_id % 2 if self.is_eagle_small else step % 2)
         if self.cuda_graph_mode and self.runtime.cuda_graph_instances[
                 instance_idx] is not None:
             # launch cuda graph
@@ -2230,6 +2270,20 @@ class GenerationSession(object):
             raise RuntimeError(f"Executing TRT engine failed step={step}!")
         if self.debug_mode:
             torch.cuda.synchronize()
+
+        if self.is_medusa_mode:
+            # print("hidden_states.shape:", hidden_states.shape)
+            # print("hidden_states:", hidden_states)
+            if (step == 0):
+                self.buffer['logits'] = self.lm_head(hidden_states[:, -1:])
+            else:
+                self.buffer['logits'] = self.lm_head(hidden_states[:, :self.new_token_num])
+            # hidden_states.zero_()
+        if self.is_eagle_small:
+            if (step == 0):
+                self.buffer['logits'] = self.lm_head(hidden_states[-1:])
+            else:
+                self.buffer['logits'] = self.lm_head(hidden_states[:self.new_token_num])
 
         context_logits = None
         if self.mapping.is_last_pp_rank():
@@ -2330,7 +2384,14 @@ class GenerationSession(object):
                     x.to('cuda') for x in host_kv_cache_block_pointers
                 ]
 
-            next_context = self.runtime.context_1 if step % 2 else self.runtime.context_0
+            next_context = self.runtime.context_1 if (self.current_context_id % 2 if self.is_eagle_small else step % 2) else self.runtime.context_0
+
+            if self.is_eagle_small:
+                self.new_tokens = torch.argmax(self.buffer['logits'], dim=-1).unsqueeze(0)
+                new_input_embedding = self.embed_tokens(self.new_tokens).squeeze(0)
+                hidden_states = torch.concat((new_input_embedding, hidden_states[-1:]), dim=-1)
+                hidden_states = self.fc(hidden_states)
+
             next_step_tensors = self._get_next_step_shape_buffer(
                 batch_size, beam_width, max_context_length, step,
                 context_lengths, host_context_lengths, position_ids,
@@ -2346,6 +2407,7 @@ class GenerationSession(object):
             self.runtime._set_tensors(next_context, next_step_tensors)
 
             if self.cuda_graph_mode:
+                assert(False)
                 # capture cuda graph
                 CUASSERT(
                     cudart.cudaStreamBeginCapture(
@@ -2373,86 +2435,88 @@ class GenerationSession(object):
 
         should_stop = None
         logits = None
-        if self.mapping.is_last_pp_rank():
-            logits = self.buffer['logits']
-            if logits is not None:
-                if self.is_medusa_mode:
-                    should_stop = self.process_logits_for_medusa_mode(
-                        step, batch_size, input_ids, logits, False,
-                        next_step_tensors, context_lengths)
-                else:
-                    if logits_processor is not None:
-                        final_output_ids = self.finalize_decoder(
-                            context_lengths,
-                            batch_size,
-                            beam_width,
-                            scfg,
-                            in_progress=True)
-                        # keep the shape as same as huggingface stopping_criteria
-                        final_output_ids_ = final_output_ids.reshape(
-                            -1, final_output_ids.size(-1))
-                        logits = logits_processor(step, final_output_ids_,
-                                                  logits)
-                        self.buffer['logits'] = logits
-                    # [batch_size x beam_width, vocab_size_padded] -> [batch_size, beam_width, vocab_size_padded]
-                    next_token_logits = logits.reshape(
-                        (batch_size, beam_width,
-                         -1)).to(self.decoder_logits_dtype)
-                    decode_step = step + max_context_length
+        self.current_context_id += 1
+        return should_stop, next_step_tensors, tasks, context_lengths, host_context_lengths, attention_mask, context_logits, self.buffer['logits'], encoder_input_lengths, hidden_states.clone()
+        # if self.mapping.is_last_pp_rank():
+            # logits = self.buffer['logits']
+            # if logits is not None:
+                # if self.is_medusa_mode:
+                    # should_stop = self.process_logits_for_medusa_mode(
+                        # step, batch_size, input_ids, logits, False,
+                        # next_step_tensors, context_lengths)
+                # else:
+                    # if logits_processor is not None:
+                        # final_output_ids = self.finalize_decoder(
+                            # context_lengths,
+                            # batch_size,
+                            # beam_width,
+                            # scfg,
+                            # in_progress=True)
+                        # # keep the shape as same as huggingface stopping_criteria
+                        # final_output_ids_ = final_output_ids.reshape(
+                            # -1, final_output_ids.size(-1))
+                        # logits = logits_processor(step, final_output_ids_,
+                                                  # logits)
+                        # self.buffer['logits'] = logits
+                    # # [batch_size x beam_width, vocab_size_padded] -> [batch_size, beam_width, vocab_size_padded]
+                    # next_token_logits = logits.reshape(
+                        # (batch_size, beam_width,
+                         # -1)).to(self.decoder_logits_dtype)
+                    # decode_step = step + max_context_length
 
-                    should_stop = self.dynamic_decoder.forward(
-                        next_token_logits, decode_step, max_context_length,
-                        self.max_attention_window_size, self.sink_token_length,
-                        ite, batch_size, self.end_ids, self.embedding_bias_opt,
-                        context_lengths, sequence_limit_lengths,
-                        stop_words_list, bad_words_list, no_repeat_ngram_size,
-                        this_src_cache_indirection, self.output_ids,
-                        self.new_tokens, self.finished, self.finished,
-                        self.sequence_length_buffer, self.cum_log_probs,
-                        self.log_probs, self.parent_ids,
-                        this_tgt_cache_indirection,
-                        self.beam_hyps_output_ids_tgt,
-                        self.beam_hyps_sequence_lengths_tgt,
-                        self.beam_hyps_cum_log_probs,
-                        self.beam_hyps_normed_scores, self.beam_hyps_log_probs,
-                        self.beam_hyps_min_normed_scores,
-                        self.beam_hyps_num_beams, self.beam_hyps_is_done,
-                        scfg.use_beam_hyps)
-                    if stopping_criteria is not None and not should_stop.item():
-                        final_output_ids = self.finalize_decoder(
-                            context_lengths,
-                            batch_size,
-                            beam_width,
-                            scfg,
-                            in_progress=True)
-                        # keep the shape as same as huggingface stopping_criteria
-                        final_output_ids_ = final_output_ids.reshape(
-                            -1, final_output_ids.size(-1))
-                        should_stop[0] = stopping_criteria(
-                            step, final_output_ids_, logits)
+                    # should_stop = self.dynamic_decoder.forward(
+                        # next_token_logits, decode_step, max_context_length,
+                        # self.max_attention_window_size, self.sink_token_length,
+                        # ite, batch_size, self.end_ids, self.embedding_bias_opt,
+                        # context_lengths, sequence_limit_lengths,
+                        # stop_words_list, bad_words_list, no_repeat_ngram_size,
+                        # this_src_cache_indirection, self.output_ids,
+                        # self.new_tokens, self.finished, self.finished,
+                        # self.sequence_length_buffer, self.cum_log_probs,
+                        # self.log_probs, self.parent_ids,
+                        # this_tgt_cache_indirection,
+                        # self.beam_hyps_output_ids_tgt,
+                        # self.beam_hyps_sequence_lengths_tgt,
+                        # self.beam_hyps_cum_log_probs,
+                        # self.beam_hyps_normed_scores, self.beam_hyps_log_probs,
+                        # self.beam_hyps_min_normed_scores,
+                        # self.beam_hyps_num_beams, self.beam_hyps_is_done,
+                        # scfg.use_beam_hyps)
+                    # if stopping_criteria is not None and not should_stop.item():
+                        # final_output_ids = self.finalize_decoder(
+                            # context_lengths,
+                            # batch_size,
+                            # beam_width,
+                            # scfg,
+                            # in_progress=True)
+                        # # keep the shape as same as huggingface stopping_criteria
+                        # final_output_ids_ = final_output_ids.reshape(
+                            # -1, final_output_ids.size(-1))
+                        # should_stop[0] = stopping_criteria(
+                            # step, final_output_ids_, logits)
 
-        if self.mapping.has_pp():
-            should_stop = self.pp_communicate_new_tokens(
-                should_stop, this_tgt_cache_indirection,
-                self.sequence_length_buffer)
+        # if self.mapping.has_pp():
+            # should_stop = self.pp_communicate_new_tokens(
+                # should_stop, this_tgt_cache_indirection,
+                # self.sequence_length_buffer)
 
-        if self.paged_kv_cache:
-            if (step >= self.max_new_tokens - 1) or (should_stop is not None
-                                                     and should_stop.item()):
-                # Free all blocks in all sequences.
-                # With in-flight batching and while loop we'll free some sequences, when they are done
-                self.kv_cache_manager.step([True] * batch_size)
+        # if self.paged_kv_cache:
+            # if (step >= self.max_new_tokens - 1) or (should_stop is not None
+                                                     # and should_stop.item()):
+                # # Free all blocks in all sequences.
+                # # With in-flight batching and while loop we'll free some sequences, when they are done
+                # self.kv_cache_manager.step([True] * batch_size)
 
-        if self.debug_mode:
-            self.dump_debug_buffers(step)
+        # if self.debug_mode:
+            # self.dump_debug_buffers(step)
 
-            if next_step_tensors is not None:
-                self.debug_buffer = {
-                    name: tensor.to_torch()
-                    for name, tensor in next_step_tensors.items()
-                }
+            # if next_step_tensors is not None:
+                # self.debug_buffer = {
+                    # name: tensor.to_torch()
+                    # for name, tensor in next_step_tensors.items()
+                # }
 
-        return should_stop, next_step_tensors, tasks, context_lengths, host_context_lengths, attention_mask, context_logits, encoder_input_lengths
+        # return should_stop, next_step_tensors, tasks, context_lengths, host_context_lengths, attention_mask, context_logits, encoder_input_lengths, hidden_states
 
     def dump_debug_buffers(self, step: int) -> None:
         if self.debug_tensors_to_save is not None:
@@ -2816,11 +2880,10 @@ class GenerationSession(object):
         ]  # ping-pong buffers
 
         hidden_states = None
-        if self.mapping.has_pp():
-            max_num_tokens = max(batch_size * beam_width,
-                                 batch_size * self.max_seq_length)
-            hidden_size = self.hidden_size * self.mapping.tp_size
-            hidden_states = torch.zeros((1, max_num_tokens, hidden_size))
+        max_num_tokens = max(batch_size * beam_width,
+                             batch_size * self.max_seq_length)
+        hidden_size = self.hidden_size * self.mapping.tp_size
+        hidden_states = torch.zeros((1, max_num_tokens, hidden_size))
 
         # Init KV cache block manager
         if self.paged_kv_cache:

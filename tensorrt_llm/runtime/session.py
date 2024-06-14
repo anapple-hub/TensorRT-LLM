@@ -65,8 +65,11 @@ class Session(object):
         if engine_buffer is not None:
             self._engine = self.runtime.deserialize_cuda_engine(engine_buffer)
         self._context = self.engine.create_execution_context()
-        with _scoped_stream() as stream:
-            self._context.set_optimization_profile_async(0, stream)
+        # with _scoped_stream() as stream:
+        #     self._context.set_optimization_profile_async(0, stream)
+        stream = torch.cuda.Stream()
+        stream_handle = stream.cuda_stream
+        self._context.set_optimization_profile_async(0, stream_handle)
         return self
 
     @staticmethod

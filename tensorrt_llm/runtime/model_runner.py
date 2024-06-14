@@ -126,6 +126,7 @@ def _builder_to_model_config(config: dict) -> Tuple[ModelConfig, dict]:
     lora_trtllm_modules_to_hf_modules = builder_config.get(
         'trtllm_modules_to_hf_modules')
     max_medusa_token_len = builder_config.get('max_medusa_token_len', 0)
+    eagle_small = (builder_config.get('eagle_mode', 0) == 2)
     num_medusa_heads = builder_config.get('num_medusa_heads', 0)
 
     plugin_config = config['plugin_config']
@@ -167,6 +168,7 @@ def _builder_to_model_config(config: dict) -> Tuple[ModelConfig, dict]:
         trtllm_modules_to_hf_modules=lora_trtllm_modules_to_hf_modules,
         num_medusa_heads=num_medusa_heads,
         max_medusa_tokens=max_medusa_token_len,
+        eagle_small=eagle_small,
     )
 
     other_config = {
@@ -340,6 +342,7 @@ class ModelRunner(ModelRunnerMixin):
                  lora_dir: Optional[str] = None,
                  rank: int = 0,
                  debug_mode: bool = False,
+                 stream: torch.cuda.Stream = None,
                  lora_ckpt_source: str = "hf",
                  medusa_choices: List[List[int]] = None,
                  debug_tensors_to_save=None) -> 'ModelRunner':
@@ -452,6 +455,9 @@ class ModelRunner(ModelRunnerMixin):
                     pretrained_config, 'num_medusa_heads') else 0,
                 use_custom_all_reduce=build_config.plugin_config.
                 use_custom_all_reduce,
+                eagle_small=(pretrained_config.eagle_mode == 2)
+                if hasattr(pretrained_config, 'eagle_mode') else False,
+                use_context_fmha_for_generation=build_config.plugin_config.use_context_fmha_for_generation,
             )
             max_batch_size = build_config.max_batch_size
             max_input_len = build_config.max_input_len
@@ -479,6 +485,7 @@ class ModelRunner(ModelRunnerMixin):
                               engine_buffer,
                               runtime_mapping,
                               debug_mode=debug_mode,
+                              stream=stream,
                               debug_tensors_to_save=debug_tensors_to_save)
         profiler.stop('load tensorrt_llm engine')
         loading_time = profiler.elapsed_time_in_sec("load tensorrt_llm engine")
